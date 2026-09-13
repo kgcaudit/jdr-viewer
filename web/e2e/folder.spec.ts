@@ -454,3 +454,95 @@ test('재생이 끝나도 시간이 길이를 넘지 않는다', async ({ page }
   // 헤더 종료 시각이 실제보다 이르면 "1:10.7 / 1:08.9" 처럼 넘어가던 문제
   expect(pos, `재생 위치(${pos})가 길이(${dur})를 넘으면 안 된다`).toBeLessThanOrEqual(dur + 0.15);
 });
+
+test('스트립을 끌면 말풍선이 따라오고, 뗄 때 이동한다', async ({ page }) => {
+  await openMorningSession(page);
+  const track = page.locator('#strip-track');
+  const bubble = page.locator('#strip-bubble');
+  await expect(track).toBeVisible();
+  await expect(bubble).toBeHidden();
+
+  const box = (await track.boundingBox())!;
+  // 3번째 구간쯤을 겨냥해 누른 채로 끈다
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(bubble).toBeVisible();
+  const at20 = await bubble.innerText();
+  expect(at20).toMatch(/\d\d:\d\d:\d\d/);
+  expect(at20).toContain('.jdr');
+
+  // 끌면 내용이 바뀐다 (아직 이동은 하지 않는다)
+  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height / 2);
+  const at85 = await bubble.innerText();
+  expect(at85).not.toBe(at20);
+  await expect(page.locator('#file-note')).toContainText('구간 1/3');
+
+  // 떼면 그제서야 이동한다
+  await page.mouse.up();
+  await expect(bubble).toBeHidden();
+  await expect(page.locator('#file-note')).toContainText('구간 3/3', { timeout: 20_000 });
+});
+
+test('스트립 구간이 손가락으로 겨냥할 만큼 넓다', async ({ page }) => {
+  // 터치 기기(폰)로 흉내낸다 — 트랙이 두꺼워져야 한다
+  const touch = await page.context().browser()!.newContext({
+    viewport: { width: 390, height: 780 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  const p2 = await touch.newPage();
+  try {
+    await p2.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+    await p2.locator('[data-day="2026-09-08"]').click();
+    await p2.locator('[data-session="0"]').click();
+    await expect(p2.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+
+    expect(await p2.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    const track = await p2.locator('#strip-track').boundingBox();
+    expect(track!.height, '터치 표적은 두꺼워야 한다').toBeGreaterThanOrEqual(40);
+
+    const widths = await p2.locator('#strip-track .strip-seg').evaluateAll((els) =>
+      els.map((el) => (el as HTMLElement).getBoundingClientRect().width),
+    );
+    expect(widths.length).toBe(3);
+    for (const w of widths) expect(w).toBeGreaterThanOrEqual(7);
+
+    // 길게 눌러도 텍스트 선택·하이라이트가 생기지 않는다
+    const style = await p2.locator('#strip-track').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { touchAction: cs.touchAction, userSelect: cs.userSelect };
+    });
+    expect(style.touchAction).toBe('none');
+    expect(style.userSelect).toBe('none');
+  } finally {
+    await touch.close();
+  }
+});
+
+test('마우스에서는 스트립이 과하게 두껍지 않다', async ({ page }) => {
+  await openMorningSession(page);
+  const track = await page.locator('#strip-track').boundingBox();
+  expect(track!.height).toBeLessThan(40);
+});
+
+test('빈 구간을 눌러도 녹화가 있는 시각으로만 간다', async ({ page }) => {
+  // 오전+오후를 한 번에 여는 날짜 단위 열기 → 가운데에 13시간 공백이 있다
+  await openFolder(page);
+  await page.locator('[data-day="2026-09-08"]').click();
+  await page.locator('[data-open-day]').click();
+  await expect(page.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+
+  const gap = page.locator('#strip-track .strip-gap').first();
+  await expect(gap).toBeVisible();
+  const box = (await gap.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2);
+  await page.mouse.down();
+  const text = await page.locator('#strip-bubble').innerText();
+  await page.mouse.up();
+
+  // 공백 뒤쪽을 눌렀으니 오후 운행 첫 파일의 시작으로 붙어야 한다
+  expect(text).toContain('22:24');
+  await expect(page.locator('#file-note')).toContainText('구간 4/6', { timeout: 20_000 });
+});

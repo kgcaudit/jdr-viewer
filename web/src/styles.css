@@ -217,16 +217,48 @@ body {
 .u-legend { font-size: 12px; }
 
 /* ── 타임라인 스트립 (벽시계 축) ───────── */
-.strip { margin-top: 10px; }
+.strip { margin-top: 10px; position: relative; }
 .strip-track {
-  position: relative; height: 26px; border-radius: 6px; cursor: pointer;
+  position: relative; height: 44px; border-radius: 6px; cursor: pointer;
   background: repeating-linear-gradient(90deg, var(--surface-2) 0 8px, transparent 8px 16px);
   border: 1px solid var(--border); overflow: hidden;
+  /* 끄는 동안 화면이 같이 스크롤되거나 길게 누르기 메뉴가 뜨면 안 된다 */
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.strip-track.is-scrubbing { border-color: var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  /* 마우스는 정확하니 굳이 손가락만큼 두꺼울 필요가 없다 */
+  .strip-track { height: 32px; }
 }
 .strip-seg {
   position: absolute; top: 3px; bottom: 3px; background: var(--accent); opacity: .55; border-radius: 3px;
 }
 .strip-seg.is-active { opacity: 1; box-shadow: 0 0 0 1px var(--surface); }
+/* 여는 중 — 눌렀다는 사실이 손가락 근처에서 보여야 한다 */
+.strip-seg.is-loading { animation: strip-pulse .9s ease-in-out infinite; }
+@keyframes strip-pulse {
+  0%, 100% { opacity: .35; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .strip-seg.is-loading { animation: none; opacity: 1; }
+}
+
+/* 끄는 동안 손가락 위에 뜨는 말풍선 — 6px짜리 구간도 보면서 맞출 수 있다 */
+.strip-bubble {
+  position: absolute; bottom: calc(100% + 8px); transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 1px; align-items: center;
+  padding: 6px 10px; border-radius: 8px; pointer-events: none; z-index: 5;
+  background: var(--text); color: var(--surface);
+  font-size: 12px; line-height: 1.35; white-space: nowrap;
+  font-variant-numeric: tabular-nums; box-shadow: var(--shadow);
+}
+.strip-bubble span:first-child { font-weight: 700; font-size: 14px; }
+.strip-bubble::after {
+  content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--text);
+}
 /* 빈 구간은 숨기지 않는다 — 녹화 공백도 사실이다 */
 .strip-gap {
   position: absolute; top: 0; bottom: 0;

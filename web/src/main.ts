@@ -24,9 +24,10 @@ import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
 import { renderExports } from './ui/exports';
 import {
-  highlightSegmentRow, markActiveSegment, renderSegments, renderStrip, updateStripCursor,
-  type FolderStat,
+  highlightSegmentRow, markActiveSegment, markLoadingSegment, renderSegments, renderStrip,
+  updateStripCursor, type FolderStat,
 } from './ui/segments';
+import { attachStripScrub } from './ui/strip-scrub';
 import { bytes, num } from './ui/format';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -529,6 +530,7 @@ async function mount(): Promise<void> {
     const seg = s.lib.segments[index];
     for (let ch = 0; ch < 2; ch++) $(`ch${ch}-note`).textContent = '여는 중…';
     if (seg) $('file-note').textContent = `구간 ${index + 1}/${s.lib.segments.length} · 출처 ${seg.path}`;
+    if (s.merged) markLoadingSegment($('strip-track'), index);
   };
 
   await s.player.init();
@@ -552,6 +554,7 @@ function onSegmentChange(index: number, status: PlayerStatus | null): void {
     renderExports($('tab-export'), doc, s.player.currentSource, toast, s.merged ? seg?.name : undefined);
   }
   if (s.merged) {
+    markLoadingSegment($('strip-track'), -1);
     markActiveSegment($('strip-track'), index);
     highlightSegmentRow($('tab-segments'), index);
   }
@@ -736,12 +739,35 @@ $('btn-fit-map').addEventListener('click', () => {
   if (!map?.fitAll()) toast('표시할 경로가 없습니다');
 });
 
-$('strip-track').addEventListener('click', (e) => {
+/**
+ * 화면 폭이 바뀌면 스트립을 다시 그린다.
+ * 최소 구간 폭이 픽셀 기준이라(7px) 폭이 달라지면 축 자체가 달라진다.
+ */
+let stripResizeTimer = 0;
+window.addEventListener('resize', () => {
   const s = session;
-  if (!s || !s.merged || !stripLayout) return;
-  const rect = ($('strip-track') as HTMLElement).getBoundingClientRect();
-  const ratio = Math.max(0, Math.min(1, ((e as MouseEvent).clientX - rect.left) / rect.width));
-  void s.player.seek(stripLayout.timeAt(ratio));
+  if (!s?.merged) return;
+  clearTimeout(stripResizeTimer);
+  stripResizeTimer = window.setTimeout(() => {
+    if (!session?.merged) return;
+    stripLayout = renderStrip($('strip-track'), session.lib);
+    markActiveSegment($('strip-track'), session.player.segmentIndex);
+    updateStripCursor($('strip-track'), stripLayout, session.player.position);
+  }, 150);
+});
+
+attachStripScrub($('strip-track'), $('strip-bubble'), {
+  layout: () => (session?.merged ? stripLayout : null),
+  label: (absMs, segIndex) => {
+    const s = session;
+    const seg = s?.lib.segments[segIndex];
+    const time = formatRecordedTime(absMs, false).slice(11, 19);
+    if (!seg || !s) return time;
+    return `${time}\n${seg.name} · ${segIndex + 1}/${s.lib.segments.length}`;
+  },
+  // 끄는 동안에는 커서만 옮긴다. 여기서 seek하면 매 프레임 파싱이 걸린다.
+  onPreview: (absMs) => updateStripCursor($('strip-track'), stripLayout, absMs),
+  onCommit: (absMs) => void session?.player.seek(absMs),
 });
 
 $<HTMLSelectElement>('speed').addEventListener('change', (e) => {

@@ -25,20 +25,30 @@ export interface FolderStat {
   selected: boolean;
 }
 
+/** 구간 하나가 화면에서 최소한 이만큼은 되어야 손가락으로 겨냥할 수 있다 */
+const MIN_SEGMENT_PX = 7;
+
 /**
  * 타임라인 스트립을 그린다.
  * 축은 벽시계 비율이 아니라 "빈 구간을 눌러 담은" 비율이다 (strip-layout.ts 참조).
+ *
+ * 최소 폭은 퍼센트가 아니라 **픽셀 기준**으로 잡는다. 예전에는 `max(0.25%)`였는데
+ * 390px 화면에서 0.25%는 1px이라 아무 의미가 없었다.
  */
 export function renderStrip(track: HTMLElement, lib: Library): StripLayout | null {
   if (lib.segments.length === 0) {
     track.innerHTML = '';
     return null;
   }
-  const layout = new StripLayout(lib);
+  // 아직 화면에 안 붙었으면 폭을 모른다 — 그때는 최소 폭 보정을 건너뛴다
+  const trackPx = track.clientWidth || 0;
+  const minFrac = trackPx > 0 ? MIN_SEGMENT_PX / trackPx : 0;
+
+  const layout = new StripLayout(lib, minFrac);
   const parts: string[] = [];
   for (const it of layout.items) {
     const left = it.from * 100;
-    const width = Math.max(0.25, (it.to - it.from) * 100);
+    const width = (it.to - it.from) * 100;
     if (it.kind === 'segment') {
       const s = lib.segments[it.index];
       parts.push(`<span class="strip-seg" data-seg="${it.index}" style="left:${left}%;width:${width}%" title="${escapeHtml(
@@ -55,6 +65,13 @@ export function renderStrip(track: HTMLElement, lib: Library): StripLayout | nul
   parts.push('<span id="strip-cursor" class="strip-cursor" style="left:0%"></span>');
   track.innerHTML = parts.join('');
   return layout;
+}
+
+/** 여는 중인 구간을 맥동시킨다 — 눌렀다는 사실이 손가락 근처에서 보여야 한다 */
+export function markLoadingSegment(track: HTMLElement, index: number): void {
+  track.querySelectorAll('.strip-seg').forEach((el) => {
+    el.classList.toggle('is-loading', Number((el as HTMLElement).dataset.seg) === index);
+  });
 }
 
 export function updateStripCursor(track: HTMLElement, layout: StripLayout | null, absMs: number): void {
