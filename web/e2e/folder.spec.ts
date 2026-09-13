@@ -262,6 +262,84 @@ test('파일이 바뀌면 그 파일만 다시 읽는다', async ({ page }, test
   }
 });
 
+test('인덱스 뒤에 추가된 파일은 그것만 읽고, 두 번째부터는 캐시가 받는다', async ({ page }, testInfo) => {
+  await openFolder(page);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#btn-export-index').click(),
+  ]);
+  const saved = join(testInfo.outputDir, 'idx-partial.json');
+  await download.saveAs(saved);
+
+  const { readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  // 한 행을 빼서 "인덱스를 내보낸 뒤 녹화된 파일"을 흉내낸다
+  const idx = JSON.parse(readFileSync(saved, 'utf8'));
+  idx.rows = idx.rows.filter((r: unknown[]) => !String(r[0]).endsWith('00000460.jdr'));
+  idx.count = idx.rows.length;
+  writeFileSync(join(dir, 'jdr-index.json'), JSON.stringify(idx));
+
+  try {
+    const fresh = await page.context().browser()!.newContext();
+    const p2 = await fresh.newPage();
+    await p2.goto('http://127.0.0.1:5173/');
+
+    // 첫 열기: 인덱스에 없는 1개만 직접 읽고, 다시 내보내라고 알린다
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+    await expect(p2.locator('#calendar')).toContainText('인덱스 파일 9개');
+    await expect(p2.locator('#calendar')).toContainText('직접 읽음 1개');
+    await expect(p2.locator('#calendar')).toContainText('인덱스에 없는 파일이 1개');
+    await expect(p2.locator('#btn-export-index')).toHaveClass(/btn-primary/);
+
+    // 두 번째 열기: 인덱스 파일이 그대로여도 캐시가 그 1개를 받아준다
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+    await expect(p2.locator('#calendar')).toContainText('브라우저 캐시 1개');
+    await expect(p2.locator('#calendar')).not.toContainText('직접 읽음');
+    await fresh.close();
+  } finally {
+    rmSync(join(dir, 'jdr-index.json'), { force: true });
+  }
+});
+
+test('다시 내보내면 인덱스 경고가 사라진다', async ({ page }, testInfo) => {
+  await openFolder(page);
+  const [first] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#btn-export-index').click(),
+  ]);
+  const saved = join(testInfo.outputDir, 'idx-warn.json');
+  await first.saveAs(saved);
+
+  const { readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  const idx = JSON.parse(readFileSync(saved, 'utf8'));
+  idx.rows = idx.rows.slice(0, -1);
+  idx.count = idx.rows.length;
+  writeFileSync(join(dir, 'jdr-index.json'), JSON.stringify(idx));
+
+  try {
+    const fresh = await page.context().browser()!.newContext();
+    const p2 = await fresh.newPage();
+    await p2.goto('http://127.0.0.1:5173/');
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+    await expect(p2.locator('#calendar')).toContainText('인덱스에 없는 파일이');
+
+    const [again] = await Promise.all([
+      p2.waitForEvent('download'),
+      p2.locator('#btn-export-index').click(),
+    ]);
+    // 새로 내보낸 인덱스에는 빠졌던 파일까지 들어 있다
+    const out = join(testInfo.outputDir, 'idx-again.json');
+    await again.saveAs(out);
+    expect(JSON.parse(readFileSync(out, 'utf8')).count).toBe(10);
+    await expect(p2.locator('#calendar')).not.toContainText('인덱스에 없는 파일이');
+    await fresh.close();
+  } finally {
+    rmSync(join(dir, 'jdr-index.json'), { force: true });
+  }
+});
+
 test('깨진 인덱스 파일은 사유를 알리고 직접 읽는다', async ({ page }) => {
   const { writeFileSync, rmSync } = await import('node:fs');
   writeFileSync(join(dir, 'jdr-index.json'), '{ 이건 JSON이 아님');

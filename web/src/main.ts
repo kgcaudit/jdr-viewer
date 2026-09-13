@@ -273,10 +273,17 @@ async function openFolder(all: File[]): Promise<void> {
     }
   }
 
-  // ② 없으면 브라우저 캐시, ③ 그것도 없으면 헤더를 직접 읽는다
+  // ② 인덱스에 없는 파일은 브라우저 캐시, ③ 그것도 없으면 헤더를 직접 읽는다.
+  //
+  // 인덱스 파일이 있어도 캐시는 반드시 같이 본다. 인덱스는 내보낸 시점에 멈춰
+  // 있으므로 그 뒤에 녹화된 파일은 인덱스에 없는데, 캐시를 건너뛰면 그 파일들을
+  // 열 때마다 다시 읽게 된다.
   const keys = jdrFiles.map(cacheKeyOf);
-  const cached = indexMap.size > 0 ? new Map() : await probeCache.getMany(keys);
-  const stats: LoadStats = { total: jdrFiles.length, fromIndexFile: 0, fromCache: 0, probed: 0, indexError };
+  const cached = await probeCache.getMany(keys);
+  const stats: LoadStats = {
+    total: jdrFiles.length, fromIndexFile: 0, fromCache: 0, probed: 0,
+    indexError, hadIndexFile: !!indexFile && !indexError, missingFromIndex: 0,
+  };
 
   const segments: SegmentInfo[] = [];
   const files = new Map<string, File>();
@@ -297,9 +304,11 @@ async function openFolder(all: File[]): Promise<void> {
       seg = entryToSegment(entry, meta);
       stats.fromIndexFile++;
     } else if (hit) {
+      if (stats.hadIndexFile) stats.missingFromIndex++;
       seg = fromCacheValue(hit, meta);
       stats.fromCache++;
     } else {
+      if (stats.hadIndexFile) stats.missingFromIndex++;
       // 헤더 512바이트만 읽는다 (파일 전체를 읽지 않는다)
       seg = await probeSegment({ src: new BlobByteSource(f, f.name), name: f.name, path, size: f.size });
       toStore.push(toCacheValue(keys[i], seg));
@@ -333,8 +342,13 @@ async function openFolder(all: File[]): Promise<void> {
   };
   // 가장 최근 달부터 보여준다
   folderState.monthIndex = Math.max(0, folderState.calendar.months.length - 1);
-  if (stats.fromIndexFile > 0) toast(`인덱스 파일에서 ${num(stats.fromIndexFile)}개를 읽어 훑기를 건너뛰었습니다`);
-  else if (stats.fromCache > 0) toast(`${num(stats.fromCache)}개는 브라우저 캐시에서 읽었습니다`);
+  if (stats.missingFromIndex > 0) {
+    toast(`인덱스에 없는 새 파일 ${num(stats.missingFromIndex)}개를 읽었습니다 — 인덱스를 다시 내보내세요`);
+  } else if (stats.fromIndexFile > 0) {
+    toast(`인덱스 파일에서 ${num(stats.fromIndexFile)}개를 읽어 훑기를 건너뛰었습니다`);
+  } else if (stats.fromCache > 0) {
+    toast(`${num(stats.fromCache)}개는 브라우저 캐시에서 읽었습니다`);
+  }
   drawCalendar();
   showView('calendar');
 }
@@ -407,6 +421,12 @@ function exportIndexFile(): void {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
   toast(`${INDEX_FILE_NAME} 저장 · ${num(items.length)}개 · ${bytes(blob.size)} — 이 폴더에 넣어두세요`);
+  // 방금 내보낸 파일에는 새 파일까지 들어 있으므로 경고를 거둔다
+  if (fs.stats.missingFromIndex > 0) {
+    fs.stats.missingFromIndex = 0;
+    fs.stats.indexError = undefined;
+    drawCalendar();
+  }
 }
 
 /** 날짜(또는 그 안의 운행 하나)만 불러온다 */
