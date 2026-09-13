@@ -77,6 +77,11 @@ export class JdrPlayer {
     return this.playing;
   }
 
+  /** 재생 진단용 계수 (?debug=1) */
+  get channelStats(): { decoded: number; rendered: number; dropped: number }[] {
+    return this.channels.map((c) => ({ ...c.stats }));
+  }
+
   async play(): Promise<void> {
     if (this.playing) return;
     if (this.positionMs >= this.durationMs) this.seek(0);

@@ -45,6 +45,8 @@ export class SequencePlayer {
   onTimeUpdate: ((absMs: number, segIndex: number) => void) | null = null;
   onPlayingChange: ((playing: boolean) => void) | null = null;
   onSegmentChange: ((segIndex: number, status: PlayerStatus | null) => void) | null = null;
+  /** 구간을 여는 중임을 알린다 (파싱에 수십~수백 ms가 걸린다) */
+  onSegmentLoading: ((segIndex: number) => void) | null = null;
 
   constructor(
     private readonly lib: Library,
@@ -72,6 +74,9 @@ export class SequencePlayer {
     return this.current?.src ?? null;
   }
   get isPlaying(): boolean { return this.wantPlaying; }
+  get channelStats(): { decoded: number; rendered: number; dropped: number }[] {
+    return this.inner?.channelStats ?? [];
+  }
 
   /** 첫 세그먼트를 붙이고 첫 프레임을 띄운다. */
   async init(): Promise<PlayerStatus | null> {
@@ -206,6 +211,9 @@ export class SequencePlayer {
     }
     this.switching = true;
     const seg = this.lib.segments[index];
+    // 새 구간의 첫 프레임이 나오기까지 이전 화면이 남아 있으면 잔상으로 보인다
+    this.clearCanvases();
+    this.onSegmentLoading?.(index);
     try {
       const loaded = await this.take(seg);
       this.inner?.close();
@@ -244,6 +252,16 @@ export class SequencePlayer {
         this.pendingTarget = null;
         void this.activate(next.index, next.absMs);
       }
+    }
+  }
+
+  /** 구간이 바뀌는 동안 이전 프레임이 남지 않도록 검게 지운다 */
+  private clearCanvases(): void {
+    for (const c of this.canvases) {
+      const ctx = c.getContext('2d');
+      if (!ctx) continue;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, c.width, c.height);
     }
   }
 

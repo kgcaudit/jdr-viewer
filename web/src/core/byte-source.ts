@@ -81,3 +81,60 @@ export class WindowReader {
     return this.buf.subarray(rel, rel + length);
   }
 }
+
+/**
+ * 읽기 버퍼링.
+ *
+ * 재생은 프레임마다 16KB 남짓을 읽는다. 69초 영상 하나면 4,190번이고 초당 60번이다.
+ * 데스크톱에서는 티가 안 나지만, 모바일에서 Blob.slice()는 호출마다 파일시스템을
+ * 거치므로 이 횟수가 그대로 끊김이 된다.
+ *
+ * 프레임은 파일 안에서도 대체로 순서대로 놓여 있으므로, 큰 덩어리로 미리 읽어두면
+ * 대부분 메모리에서 해결된다. 채널 0과 1이 번갈아 나와도 같은 덩어리 안에 있다.
+ */
+export class BufferedByteSource implements ByteSource {
+  private chunks: { start: number; end: number; data: Bytes }[] = [];
+  /** 적중률 확인용 */
+  stats = { hits: 0, misses: 0, bytesRead: 0 };
+
+  constructor(
+    private readonly inner: ByteSource,
+    private readonly chunkSize = 4 << 20,
+    private readonly maxChunks = 3,
+  ) {}
+
+  get size(): number { return this.inner.size; }
+  get name(): string { return this.inner.name; }
+
+  async read(offset: number, length: number): Promise<Bytes> {
+    const end = offset + length;
+    for (let i = 0; i < this.chunks.length; i++) {
+      const c = this.chunks[i];
+      if (offset >= c.start && end <= c.end) {
+        // 최근 쓴 것을 뒤로 보내 오래된 것부터 버린다
+        if (i !== this.chunks.length - 1) {
+          this.chunks.splice(i, 1);
+          this.chunks.push(c);
+        }
+        this.stats.hits++;
+        return c.data.subarray(offset - c.start, end - c.start);
+      }
+    }
+
+    this.stats.misses++;
+    // 요청보다 훨씬 크게 읽어 둔다. 어차피 다음 프레임이 바로 뒤에 있다.
+    const want = Math.min(Math.max(this.chunkSize, length), this.inner.size - offset);
+    const data = await this.inner.read(offset, want);
+    this.stats.bytesRead += data.length;
+    if (data.length >= length) {
+      this.chunks.push({ start: offset, end: offset + data.length, data });
+      while (this.chunks.length > this.maxChunks) this.chunks.shift();
+    }
+    return data.subarray(0, Math.min(length, data.length));
+  }
+
+  /** 파싱이 끝난 뒤처럼, 더는 쓰지 않을 버퍼를 비운다 */
+  clearBuffers(): void {
+    this.chunks = [];
+  }
+}

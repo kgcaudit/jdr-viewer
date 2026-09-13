@@ -8,6 +8,11 @@ export class GpsMap {
   private track: L.Polyline | null = null;
   private marker: L.CircleMarker | null = null;
   private fixes: GpsFix[] = [];
+  /**
+   * 처음 한 번만 경로에 맞춰 화면을 잡는다.
+   * 구간이 바뀔 때마다 다시 맞추면 사용자가 확대해 둔 위치가 리셋된다.
+   */
+  private fitted = false;
 
   constructor(private readonly el: HTMLElement) {}
 
@@ -38,7 +43,10 @@ export class GpsMap {
     this.marker = L.circleMarker(latlngs[0], {
       radius: 7, color: '#fff', weight: 2, fillColor: '#e53e3e', fillOpacity: 1,
     }).addTo(this.map);
-    this.map.fitBounds(this.track.getBounds(), { padding: [24, 24] });
+    if (!this.fitted) {
+      this.map.fitBounds(this.track.getBounds(), { padding: [24, 24] });
+      this.fitted = true;
+    }
     return { shown: valid.length, dropped: fixes.length - valid.length };
   }
 
@@ -52,6 +60,18 @@ export class GpsMap {
     }
     this.marker.setLatLng([best.lat, best.lon]);
     return best;
+  }
+
+  /** 전체 경로가 다 보이도록 다시 맞춘다 (사용자가 눌렀을 때만) */
+  fitAll(): boolean {
+    if (!this.map || !this.track) return false;
+    this.map.fitBounds(this.track.getBounds(), { padding: [24, 24] });
+    return true;
+  }
+
+  /** 새 라이브러리를 그릴 때는 다시 한 번 맞춰야 한다 */
+  resetFit(): void {
+    this.fitted = false;
   }
 
   /** 탭이 숨겨진 상태에서 만들어지면 크기가 0이라 다시 계산해야 한다. */

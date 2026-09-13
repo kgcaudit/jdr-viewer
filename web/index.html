@@ -106,6 +106,8 @@
           <button id="btn-mute" class="btn btn-icon" type="button" aria-label="음소거">🔊</button>
         </div>
         <p id="file-note" class="file-note"></p>
+        <p id="debug-note" class="file-note" hidden></p>
+        <div id="session-chips" class="session-chips" hidden></div>
         <div id="timeline-strip" class="strip" hidden>
           <div id="strip-track" class="strip-track"></div>
           <div class="strip-labels">
@@ -129,7 +131,10 @@
           <div id="tab-segments" class="tab-panel"></div>
           <div id="tab-map" class="tab-panel">
             <div id="map" class="map"></div>
-            <p id="map-note" class="muted small"></p>
+            <div class="map-bar">
+              <p id="map-note" class="muted small"></p>
+              <button id="btn-fit-map" class="btn btn-sm" type="button">전체 경로 보기</button>
+            </div>
             <p id="scan-note" class="muted small"></p>
           </div>
           <div id="tab-sensor" class="tab-panel">

@@ -8,7 +8,7 @@
  * 필요할 때 따로 계산한다. 블록 오프셋은 프로브 때 이미 구해 두었으므로
  * magic 스캔도 건너뛴다.
  */
-import { BlobByteSource } from '../core/byte-source';
+import { BlobByteSource, BufferedByteSource } from '../core/byte-source';
 import { parseJdr } from '../core/parser';
 import type { SegmentInfo } from '../core/segment';
 import type { LoadedSegment, SegmentLoader } from './sequence';
@@ -39,11 +39,15 @@ export class FileSegmentLoader implements SegmentLoader {
     if (!file) throw new Error(`파일을 찾을 수 없습니다: ${seg.path}`);
 
     const job = (async () => {
-      const src = new BlobByteSource(file, seg.name);
+      // 재생은 프레임마다 작은 조각을 수천 번 읽는다. 버퍼링해 두지 않으면
+      // 모바일에서 그 호출 횟수가 그대로 끊김이 된다.
+      const src = new BufferedByteSource(new BlobByteSource(file, seg.name));
       const doc = await parseJdr(src, undefined, {
         hash: this.withHash,
         blockOffsets: seg.blockOffsets.length > 0 ? seg.blockOffsets : undefined,
       });
+      // 파싱은 파일 전체를 훑으므로 그때 담긴 버퍼는 재생에 쓸모가 없다
+      src.clearBuffers();
       const loaded: LoadedSegment = { doc, src };
       this.cache.set(seg.id, loaded);
       while (this.cache.size > this.maxEntries) {

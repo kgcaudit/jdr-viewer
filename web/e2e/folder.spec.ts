@@ -275,3 +275,81 @@ test('깨진 인덱스 파일은 사유를 알리고 직접 읽는다', async ({
     rmSync(join(dir, 'jdr-index.json'), { force: true });
   }
 });
+
+test('같은 날짜의 다른 운행으로 캘린더 없이 바로 옮긴다', async ({ page }) => {
+  await openMorningSession(page);
+  const chips = page.locator('#session-chips .chip-btn');
+  // [09-08 전체] [08:09~] [22:24~]
+  await expect(chips).toHaveCount(3);
+  await expect(chips.nth(1)).toHaveClass(/is-active/);
+
+  // 오후 운행으로 바로 이동 (캘린더로 돌아가지 않는다)
+  await chips.nth(2).click();
+  await expect(page.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+  await expect(page.locator('#view-main')).toBeVisible();
+  await expect(page.locator('#file-note')).toContainText('00000463.jdr');
+  await expect(page.locator('#session-chips .chip-btn').nth(2)).toHaveClass(/is-active/);
+
+  // 날짜 전체로도 갈 수 있다
+  await page.locator('#session-chips .chip-btn').first().click();
+  await expect(page.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+  await expect(page.locator('#file-note')).toContainText('구간 1/6');
+});
+
+test('구간이 바뀌어도 지도 위치와 배율이 유지된다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('.tab[data-tab="map"]').click();
+  await expect(page.locator('#map path.leaflet-interactive').first()).toBeVisible({ timeout: 20_000 });
+
+  // 경로 폴리라인의 좌표는 배율·위치가 바뀌면 같이 바뀐다
+  const readPath = () => page.locator('#map path.leaflet-interactive').first().getAttribute('d');
+  const initial = await readPath();
+
+  // 사용자가 배율을 바꿔 둔 상태를 만든다
+  // (짧은 경로라 처음부터 최대 배율이므로 축소로 확인한다)
+  await page.locator('#map .leaflet-control-zoom-out').first().click();
+  await page.locator('#map .leaflet-control-zoom-out').first().click();
+  await expect.poll(readPath, { timeout: 10_000 }).not.toBe(initial);
+  const zoomed = await readPath();
+
+  // 다음 파일로 넘어가도 보던 위치·배율이 그대로여야 한다
+  await page.locator('#btn-next-file').click();
+  await expect(page.locator('#file-note')).toContainText('구간 2/3', { timeout: 20_000 });
+  await page.waitForTimeout(1200);
+  expect(await readPath()).toBe(zoomed);
+
+  // 필요하면 버튼으로 전체 경로를 다시 맞출 수 있다
+  await page.locator('#btn-fit-map').click();
+  await expect.poll(readPath, { timeout: 10_000 }).not.toBe(zoomed);
+});
+
+test('구간 전환 중 이전 화면이 남지 않는다', async ({ page }) => {
+  test.skip(codec === null, '이 브라우저에서 쓸 수 있는 인코더가 없습니다');
+  await openMorningSession(page);
+
+  // 첫 프레임이 그려질 때까지 재생
+  await page.locator('#btn-play').click();
+  await page.waitForFunction(() => {
+    const c = document.getElementById('canvas-0') as HTMLCanvasElement;
+    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    let min = 255; let max = 0;
+    for (let i = 0; i < d.length; i += 4) { if (d[i] < min) min = d[i]; if (d[i] > max) max = d[i]; }
+    return max - min > 40;
+  }, undefined, { timeout: 20_000 });
+  await page.locator('#btn-play').click();
+
+  // 전환을 시작한 직후에는 화면이 깨끗이 비워져야 한다 (잔상 금지)
+  const cleared = await page.evaluate(async () => {
+    const c = document.getElementById('canvas-0') as HTMLCanvasElement;
+    (document.getElementById('btn-next-file') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 30));
+    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    let max = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      max = Math.max(max, d[i], d[i + 1], d[i + 2]);
+    }
+    return max;
+  });
+  expect(cleared, '전환 직후 캔버스가 검게 지워져야 한다').toBeLessThan(12);
+  await expect(page.locator('#file-note')).toContainText('구간 2/3', { timeout: 20_000 });
+});

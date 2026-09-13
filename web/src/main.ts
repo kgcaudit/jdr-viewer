@@ -62,6 +62,9 @@ interface PlaySession {
   records: MergedRecords;
   scan: RecordScanJob | null;
   label: string;
+  /** 지금 보고 있는 날짜와 운행 (-1 = 날짜 전체) */
+  dayKey: string;
+  sessionIndex: number;
 }
 
 let folderState: FolderState | null = null;
@@ -81,6 +84,8 @@ function readCodecOverride(): string | undefined {
   return /^[a-z0-9][a-z0-9.\-_]*$/i.test(raw) ? raw : undefined;
 }
 const codecOverride = readCodecOverride();
+/** ?debug=1 — 끊김을 진단할 때 쓰는 재생 계수 */
+const debugMode = new URLSearchParams(location.search).get('debug') === '1';
 
 function showView(name: keyof typeof views): void {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
@@ -422,7 +427,7 @@ async function openDay(dayKey: string, sessionIndex: number): Promise<void> {
   $('loading-phase').textContent = `${label} 여는 중…`;
   $('loading-detail').textContent = `${num(segs.length)}개 구간`;
   setBar(30);
-  await startPlaySession(segs, fs.files, true, label, null);
+  await startPlaySession(segs, fs.files, true, label, null, dayKey, sessionIndex);
 }
 
 // ── 재생 세션 ───────────────────────────────────────
@@ -442,6 +447,8 @@ async function startPlaySession(
   merged: boolean,
   label: string,
   preparsed: JdrDocument | null,
+  dayKey = '',
+  sessionIndex = -1,
 ): Promise<void> {
   const lib = buildLibrary(segments);
   if (lib.segments.length === 0) {
@@ -454,7 +461,10 @@ async function startPlaySession(
     [$<HTMLCanvasElement>('canvas-0'), $<HTMLCanvasElement>('canvas-1')],
     toast, codecOverride,
   );
-  session = { merged, lib, loader, player, records: new MergedRecords(), scan: null, label };
+  session = {
+    merged, lib, loader, player, records: new MergedRecords(), scan: null, label,
+    dayKey, sessionIndex,
+  };
 
   if (preparsed && lib.segments.length === 1) {
     loader.prime(lib.segments[0].id, preparsed, new BlobByteSource(files.get(lib.segments[0].id)!, preparsed.fileName));
@@ -469,12 +479,15 @@ async function mount(): Promise<void> {
   setControlsEnabled(false);
 
   $('timeline-strip').hidden = !s.merged;
+  $('session-chips').hidden = !s.merged;
   document.querySelector<HTMLButtonElement>('.tab[data-tab="segments"]')!.hidden = !s.merged;
 
   map = new GpsMap($('map'));
+  map.resetFit();
   charts = new TimeCharts($('chart-speed'), $('chart-gsensor'));
 
   if (s.merged) {
+    renderSessionChips();
     stripLayout = renderStrip($('strip-track'), s.lib);
     $('strip-start').textContent = formatRecordedTime(s.lib.startMs, false).slice(11);
     $('strip-end').textContent = formatRecordedTime(s.lib.endMs, false).slice(11);
@@ -487,6 +500,11 @@ async function mount(): Promise<void> {
     $('btn-play').setAttribute('aria-label', playing ? '일시정지' : '재생');
   };
   s.player.onSegmentChange = (index, status) => onSegmentChange(index, status);
+  s.player.onSegmentLoading = (index) => {
+    const seg = s.lib.segments[index];
+    for (let ch = 0; ch < 2; ch++) $(`ch${ch}-note`).textContent = '여는 중…';
+    if (seg) $('file-note').textContent = `구간 ${index + 1}/${s.lib.segments.length} · 출처 ${seg.path}`;
+  };
 
   await s.player.init();
   setControlsEnabled(true);
@@ -494,6 +512,7 @@ async function mount(): Promise<void> {
   if (!hasWebCodecs()) toast('이 브라우저는 WebCodecs 미지원 — 영상 재생만 비활성화됩니다');
   else if (codecOverride) toast(`코덱을 ${codecOverride}(으)로 강제 지정했습니다`);
 
+  if (debugMode) startDebugMeter();
   startRecordScan();
 }
 
@@ -587,6 +606,59 @@ function startRecordScan(): void {
   });
 }
 
+/**
+ * 같은 날짜의 다른 운행으로 바로 옮겨가는 칩.
+ * 시간대를 바꾸겠다고 캘린더까지 돌아가는 건 번거롭다.
+ */
+function renderSessionChips(): void {
+  const s = session;
+  const fs = folderState;
+  const el = $('session-chips');
+  if (!s || !fs || !s.dayKey) { el.innerHTML = ''; el.hidden = true; return; }
+  const day = fs.calendar.byKey.get(s.dayKey);
+  if (!day || day.sessions.length === 0) { el.innerHTML = ''; el.hidden = true; return; }
+
+  const hhmm = (ms: number) => formatRecordedTime(ms, false).slice(11, 16);
+  const chips = [
+    `<button class="chip-btn${s.sessionIndex < 0 ? ' is-active' : ''}" type="button" data-session="-1">
+      ${s.dayKey.slice(5)} 전체<span class="chip-sub">${num(day.segments.length)}개</span>
+    </button>`,
+    ...day.sessions.map(
+      (ses, i) => `<button class="chip-btn${s.sessionIndex === i ? ' is-active' : ''}" type="button" data-session="${i}">
+        ${hhmm(ses.startMs)}~${hhmm(ses.endMs)}<span class="chip-sub">${num(ses.segments.length)}개</span>
+      </button>`,
+    ),
+  ];
+  el.innerHTML = chips.join('');
+  el.hidden = false;
+  el.querySelectorAll<HTMLButtonElement>('[data-session]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const idx = Number(b.dataset.session);
+      if (idx === s.sessionIndex) return;
+      void openDay(s.dayKey, idx);
+    });
+  });
+}
+
+/** 끊김 진단: 초당 디코딩·렌더 수와 버린 프레임 수 */
+let debugTimer = 0;
+function startDebugMeter(): void {
+  const el = $('debug-note');
+  el.hidden = false;
+  clearInterval(debugTimer);
+  let prev = [{ decoded: 0, rendered: 0, dropped: 0 }, { decoded: 0, rendered: 0, dropped: 0 }];
+  debugTimer = window.setInterval(() => {
+    const cur = session?.player.channelStats ?? [];
+    if (cur.length === 0) return;
+    const parts = cur.map((c, i) => {
+      const p = prev[i] ?? { decoded: 0, rendered: 0, dropped: 0 };
+      return `CH${i} 디코딩 ${c.decoded - p.decoded}/s · 렌더 ${c.rendered - p.rendered}/s · 버림 ${c.dropped - p.dropped}/s`;
+    });
+    prev = cur;
+    el.textContent = parts.join('   |   ');
+  }, 1000);
+}
+
 function renderSegmentsPanel(): void {
   const s = session;
   if (!s) return;
@@ -626,6 +698,10 @@ const commitSeek = (): void => {
 };
 seekEl.addEventListener('change', commitSeek);
 seekEl.addEventListener('pointerup', commitSeek);
+
+$('btn-fit-map').addEventListener('click', () => {
+  if (!map?.fitAll()) toast('표시할 경로가 없습니다');
+});
 
 $('strip-track').addEventListener('click', (e) => {
   const s = session;
@@ -679,6 +755,11 @@ document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
 window.addEventListener('resize', () => {
   map?.invalidate();
   charts?.resize();
+});
+
+// 화면이 가려지면 재생을 멈춘다 — 백그라운드에서 디코더를 돌려 배터리를 쓸 이유가 없다
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) session?.player.pause();
 });
 
 $('codec-note').textContent = hasWebCodecs()

@@ -340,3 +340,20 @@ body {
   margin: 6px 2px 0; font-size: 12px; color: var(--muted);
   font-variant-numeric: tabular-nums; word-break: break-all;
 }
+
+/* ── 같은 날짜의 다른 운행으로 바로 이동 ─── */
+.session-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.chip-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; min-height: 36px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font: inherit; font-size: 13px; font-weight: 550;
+  cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.chip-btn:hover { background: var(--surface-2); }
+.chip-btn.is-active { border-color: var(--accent); background: var(--surface-2); }
+.chip-sub { font-size: 11px; color: var(--muted); font-weight: 400; }
+
+.map-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.map-bar p { margin: 0; }
+.btn-sm { min-height: 32px; padding: 5px 10px; font-size: 12px; flex: 0 0 auto; }
