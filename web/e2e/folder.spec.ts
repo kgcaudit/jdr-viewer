@@ -775,3 +775,76 @@ test('빈 구간이 왜 비었는지 알려 준다', async ({ page }) => {
   await expect(panel.locator('.gap-why')).toContainText('.jdr');
   await expect(panel).toContainText('파일 번호가 건너뛰면');
 });
+
+test('캘린더로 나가면 화면 깨움을 놓아준다 — 배터리', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __wake: { releases: number } };
+    w.__wake = { releases: 0 };
+    const nav = navigator as Navigator & { wakeLock?: { request(t: string): Promise<unknown> } };
+    const orig = nav.wakeLock?.request.bind(nav.wakeLock);
+    if (!orig) return;
+    nav.wakeLock!.request = (async (type?: string) => {
+      const s = (await orig(type ?? 'screen')) as { release(): Promise<void> };
+      const release = s.release.bind(s);
+      s.release = async () => { w.__wake.releases++; return release(); };
+      return s;
+    }) as typeof nav.wakeLock.request;
+  });
+
+  await openMorningSession(page);
+  await expect(page.locator('#btn-wake')).toBeVisible();
+  await expect(page.locator('#btn-wake')).toHaveClass(/is-on/);
+
+  await page.locator('#btn-back-calendar').click();
+  await expect(page.locator('#view-calendar')).toBeVisible();
+  // 캘린더에서는 칩도 감추고 잠금도 놓는다
+  await expect(page.locator('#btn-wake')).toBeHidden();
+  expect(await page.evaluate(() => (window as unknown as { __wake: { releases: number } }).__wake.releases))
+    .toBeGreaterThan(0);
+
+  // 다시 들어가면 다시 켜진다
+  await page.locator('#calendar [data-session="0"]').click();
+  await expect(page.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+  await expect(page.locator('#btn-wake')).toHaveClass(/is-on/);
+});
+
+test('탐색 막대를 파일 뒷부분으로 끌어도 그 파일 안에 머문다', async ({ page }) => {
+  await openMorningSession(page);
+  await expect(page.locator('#file-note')).toContainText('구간 1/3');
+
+  const seek = page.locator('#seek');
+  const max = Number(await seek.getAttribute('max'));
+  expect(max).toBeGreaterThan(1000);
+
+  // 파일의 90% 지점으로 끈다 — 예전에는 여기서 다음 파일로 튕겼다
+  await seek.fill(String(Math.round(max * 0.9)));
+  await seek.dispatchEvent('change');
+
+  // 예전에는 여기서 다음 파일로 튕겨 나가며 위치가 0 근처로 되돌아갔다
+  await expect(page.locator('#file-note')).toContainText('구간 1/3');
+  const value = Number(await seek.inputValue());
+  expect(value / Number(await seek.getAttribute('max'))).toBeGreaterThan(0.8);
+});
+
+test('탐색 막대 위치와 시간 표시가 어긋나지 않는다', async ({ page }) => {
+  await openMorningSession(page);
+  const seek = page.locator('#seek');
+
+  for (const ratio of [0.25, 0.5, 0.75]) {
+    const max = Number(await seek.getAttribute('max'));
+    await seek.fill(String(Math.round(max * ratio)));
+    await seek.dispatchEvent('change');
+    await page.waitForTimeout(200);
+
+    const value = Number(await seek.inputValue());
+    const nowMax = Number(await seek.getAttribute('max'));
+    const label = (await page.locator('#time-label').textContent()) ?? '';
+    const m = /^(\d+):(\d+)\.(\d)/.exec(label);
+    expect(m, label).not.toBeNull();
+    const labelMs = (Number(m![1]) * 60 + Number(m![2])) * 1000 + Number(m![3]) * 100;
+
+    // 막대가 가리키는 위치와 글자가 같은 곳을 가리켜야 한다
+    expect(Math.abs(value - labelMs), `${ratio}: 막대 ${value}ms vs 글자 ${labelMs}ms`).toBeLessThan(1500);
+    expect(value / nowMax).toBeCloseTo(labelMs / nowMax, 1);
+  }
+});

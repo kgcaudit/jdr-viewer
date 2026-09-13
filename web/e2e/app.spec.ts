@@ -295,3 +295,41 @@ test('대화 탭에서 구간을 훑어 말한 곳을 찾는다', async ({ page 
   await expect(panel.locator('#sp-csv')).toBeDisabled();
   expect(errors).toEqual([]);
 });
+
+test('열람 중에는 화면을 깨워 둔다', async ({ page }) => {
+  // 실제로 잠금이 걸렸는지는 브라우저 내부라 못 보므로, 요청을 가로채 센다
+  await page.addInitScript(() => {
+    const w = window as unknown as { __wake: { requests: number; releases: number } };
+    w.__wake = { requests: 0, releases: 0 };
+    const nav = navigator as Navigator & { wakeLock?: { request(t: string): Promise<unknown> } };
+    const orig = nav.wakeLock?.request.bind(nav.wakeLock);
+    if (!orig) return;
+    nav.wakeLock!.request = (async (type?: string) => {
+      w.__wake.requests++;
+      const s = (await orig(type ?? 'screen')) as { release(): Promise<void> };
+      const release = s.release.bind(s);
+      s.release = async () => { w.__wake.releases++; return release(); };
+      return s;
+    }) as typeof nav.wakeLock.request;
+  });
+
+  await loadSample(page);
+  const chip = page.locator('#btn-wake');
+  await expect(chip).toBeVisible();
+  await expect(chip).toContainText('화면 켜둠');
+  await expect(chip).toHaveClass(/is-on/);
+
+  const stats = () => page.evaluate(() => (window as unknown as { __wake: { requests: number; releases: number } }).__wake);
+  expect((await stats()).requests).toBeGreaterThan(0);
+
+  // 눌러서 끄면 놓아준다
+  await chip.click();
+  await expect(chip).toContainText('화면 꺼짐 허용');
+  await expect(chip).not.toHaveClass(/is-on/);
+  expect((await stats()).releases).toBeGreaterThan(0);
+
+  // 다시 켤 수 있다
+  await chip.click();
+  await expect(chip).toHaveClass(/is-on/);
+  expect((await stats()).requests).toBeGreaterThan(1);
+});

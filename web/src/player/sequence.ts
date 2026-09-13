@@ -11,7 +11,7 @@
 import { BufferedByteSource, type ByteSource } from '../core/byte-source';
 import type { JdrDocument } from '../core/types';
 import type { SegmentInfo } from '../core/segment';
-import { type Library, gapAt, resolvePlayPosition, segmentIndexAt } from '../core/library';
+import { type Library, gapAt, recomputeLibrary, resolvePlayPosition, segmentIndexAt } from '../core/library';
 import { JdrPlayer, type PlayerStatus } from './player';
 
 export interface LoadedSegment {
@@ -27,6 +27,8 @@ export interface SegmentLoader {
 const PRELOAD_LEAD_MS = 2500;
 /** ⏮ 을 눌렀을 때, 이 시간 안이면 이전 파일로 / 지났으면 현재 파일 처음으로 (플레이어 관례) */
 const PREV_FILE_RESTART_MS = 3000;
+/** 이만큼 넘게 어긋나야 타임라인을 고친다 (자잘한 반올림까지 쫓지 않는다) */
+const TIME_FIX_MIN_MS = 250;
 
 export class SequencePlayer {
   private inner: JdrPlayer | null = null;
@@ -38,6 +40,12 @@ export class SequencePlayer {
   private speed = 1;
   private muted = false;
   private switching = false;
+  /**
+   * 지금 재생 중인 문서의 기준 시각(첫 패킷). 프로브가 구한 seg.startMs와
+   * 어긋날 수 있으므로 **파일 안 위치 계산은 반드시 이 값을 쓴다.**
+   * 섞어 쓰면 탐색이 엉뚱한 파일로 튄다.
+   */
+  private baseMs = NaN;
   /** 전환 중에 들어온 요청. 버리지 않고 마지막 것을 이어서 처리한다. */
   private pendingTarget: { index: number; absMs: number } | null = null;
   private lastAbsMs: number;
@@ -47,6 +55,8 @@ export class SequencePlayer {
   onSegmentChange: ((segIndex: number, status: PlayerStatus | null) => void) | null = null;
   /** 구간을 여는 중임을 알린다 (파싱에 수십~수백 ms가 걸린다) */
   onSegmentLoading: ((segIndex: number) => void) | null = null;
+  /** 프로브 시각이 실제와 달라 타임라인을 고쳤을 때 */
+  onLibraryFixed: (() => void) | null = null;
 
   constructor(
     private readonly lib: Library,
@@ -113,7 +123,8 @@ export class SequencePlayer {
     const target = resolvePlayPosition(this.lib, clamped);
     if (!target) return;
     if (target.index === this.index && this.inner) {
-      const rel = target.absMs - this.lib.segments[this.index].startMs;
+      // 프로브의 seg.startMs가 아니라 **실제 문서의 첫 패킷**이 기준이다
+      const rel = target.absMs - this.currentBaseMs;
       this.inner.seek(rel);
       this.lastAbsMs = target.absMs;
       this.onTimeUpdate?.(target.absMs, this.index);
@@ -142,6 +153,12 @@ export class SequencePlayer {
 
   // ── 파일 단위 조작 ─────────────────────────────────
 
+  /** 지금 파일의 기준 시각 (첫 패킷). 없으면 프로브 값으로 버틴다. */
+  get currentBaseMs(): number {
+    if (Number.isFinite(this.baseMs)) return this.baseMs;
+    return this.currentSegment?.startMs ?? 0;
+  }
+
   /** 현재 파일 안에서의 위치(ms) */
   get filePosition(): number {
     if (this.inner) return this.inner.position;
@@ -162,11 +179,21 @@ export class SequencePlayer {
     return this.lib.segments.length;
   }
 
-  /** 현재 파일 안에서 이동 */
+  /**
+   * 현재 파일 안에서 이동.
+   *
+   * 라이브러리(`seek`)를 거치지 않는다. 거기서는 프로브가 구한 구간 범위로
+   * 위치를 재해석하는데, 프로브의 종료 시각이 실제보다 이르면 **파일 뒷부분을
+   * 가리켰을 때 다음 파일로 튕겨 나간다.** 이미 이 파일 안이라는 걸 아는
+   * 상황이므로 문서 기준으로 곧장 옮긴다.
+   */
   async seekInFile(relMs: number): Promise<void> {
-    const seg = this.currentSegment;
-    if (!seg) return;
-    await this.seek(seg.startMs + Math.max(0, Math.min(relMs, this.fileDuration)));
+    if (!this.inner) return;
+    const rel = Math.max(0, Math.min(relMs, this.fileDuration));
+    this.inner.seek(rel);
+    this.lastAbsMs = this.currentBaseMs + rel;
+    this.onTimeUpdate?.(this.lastAbsMs, this.index);
+    if (!this.wantPlaying) await this.inner.pumpOnce();
   }
 
   /** 초 단위 건너뛰기. 파일 경계를 넘으면 앞/뒤 파일로 이어진다. */
@@ -215,6 +242,22 @@ export class SequencePlayer {
 
   // ── 내부 ───────────────────────────────────────────
 
+  /** 실제 문서 시각으로 구간 기록을 고친다. 고쳤으면 true. */
+  private applyRealTimes(seg: SegmentInfo, doc: JdrDocument): boolean {
+    const start = doc.firstTimeMs;
+    const end = doc.lastTimeMs;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return false;
+    if (Math.abs(seg.startMs - start) < TIME_FIX_MIN_MS && Math.abs(seg.endMs - end) < TIME_FIX_MIN_MS) {
+      return false;
+    }
+    seg.startMs = start;
+    seg.endMs = end;
+    seg.durationMs = Math.max(0, end - start);
+    seg.timeSource = 'packets';
+    seg.endEstimated = false;
+    return true;
+  }
+
   private async activate(index: number, absMs: number): Promise<PlayerStatus | null> {
     // 구간 전환에는 파싱·디코더 재설정이 필요해 수백 ms가 걸린다.
     // 그 사이의 클릭을 버리면 "눌러도 반응이 없는" 상태가 되므로 마지막 요청을 기억해 둔다.
@@ -240,6 +283,14 @@ export class SequencePlayer {
       // 절대 시각의 기준은 **실제 첫 패킷**이다. 프로브가 구한 seg.startMs와
       // 어긋나면 타임라인 전체가 그만큼 밀리므로, 문서 값을 우선한다.
       const baseMs = Number.isFinite(loaded.doc.firstTimeMs) ? loaded.doc.firstTimeMs : seg.startMs;
+      this.baseMs = baseMs;
+      // 열어 보니 프로브가 구한 시각과 다르면 타임라인을 고친다.
+      // 프로브는 헤더만 읽으므로 종료 시각이 실제보다 이를 수 있는데,
+      // 그대로 두면 없는 빈 구간이 남고 탐색이 다음 파일로 튕겨 나간다.
+      if (this.applyRealTimes(seg, loaded.doc)) {
+        recomputeLibrary(this.lib);
+        this.onLibraryFixed?.();
+      }
       player.onTimeUpdate = (relMs) => {
         const abs = baseMs + relMs;
         this.lastAbsMs = abs;

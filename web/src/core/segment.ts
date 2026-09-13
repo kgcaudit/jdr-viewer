@@ -191,7 +191,21 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
   };
 }
 
-/** 첫 패킷과 (인덱스 테이블이 가리키는) 마지막 패킷의 헤더에서 시각을 읽는다. */
+/** 끝에서부터 이만큼까지는 되짚어 본다 — 마지막 패킷의 시각이 비어 있는 경우가 있다 */
+const TAIL_SCAN = 24;
+
+/**
+ * 첫 패킷과 마지막 패킷의 시각을 읽는다.
+ *
+ * 마지막 패킷 하나만 보면 안 된다. 꼬리에 시각이 비었거나 깨진 패킷이 붙어
+ * 있으면 종료 시각을 못 구하고, 그러면 **헤더에 적힌(실제보다 이른) 값이
+ * 그대로 남아** 파일이 짧아진다. 파일이 짧아지면 두 가지가 한꺼번에 틀어진다.
+ *   - 파일 사이에 없는 빈 구간이 생긴다
+ *   - 탐색 막대를 파일 뒷부분으로 끌면 범위를 벗어나 다음 파일로 튕겨 나간다
+ *
+ * 그래서 끝에서부터 거슬러 올라가며 **시각이 읽히는 첫 패킷**을 찾는다.
+ * 인덱스 항목은 붙어 있으므로 한 번에 읽어 두고 패킷 헤더만 몇 번 더 본다.
+ */
 async function timeRangeFromPackets(
   src: ByteSource, firstBlock: number, lastIndexOffset: number, lastCount: number,
 ): Promise<{ startMs: number; endMs: number }> {
@@ -202,19 +216,26 @@ async function timeRangeFromPackets(
     if (head.length === PACKET_HEADER_SIZE) {
       startMs = readSystemTimeFromView(new DataView(head.buffer, head.byteOffset, head.byteLength), 12);
     }
+
     if (lastCount > 0) {
-      const entryPos = lastIndexOffset + (lastCount - 1) * INDEX_ENTRY_SIZE;
-      const entry = await src.read(entryPos, INDEX_ENTRY_SIZE);
-      if (entry.length === INDEX_ENTRY_SIZE) {
-        const ev = new DataView(entry.buffer, entry.byteOffset, entry.byteLength);
-        const packetOffset = ev.getUint32(8, true);
-        const size = ev.getUint32(4, true);
-        const tail = await src.read(packetOffset, PACKET_HEADER_SIZE);
-        if (tail.length === PACKET_HEADER_SIZE) {
+      const take = Math.min(TAIL_SCAN, lastCount);
+      const from = lastIndexOffset + (lastCount - take) * INDEX_ENTRY_SIZE;
+      const entries = await src.read(from, take * INDEX_ENTRY_SIZE);
+      if (entries.length >= INDEX_ENTRY_SIZE) {
+        const ev = new DataView(entries.buffer, entries.byteOffset, entries.byteLength);
+        const have = Math.floor(entries.length / INDEX_ENTRY_SIZE);
+        for (let k = have - 1; k >= 0; k--) {
+          const packetOffset = ev.getUint32(k * INDEX_ENTRY_SIZE + 8, true);
+          if (packetOffset <= 0 || packetOffset + PACKET_HEADER_SIZE > src.size) continue;
+          const tail = await src.read(packetOffset, PACKET_HEADER_SIZE);
+          if (tail.length !== PACKET_HEADER_SIZE) continue;
           const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
-          endMs = readSystemTimeFromView(tv, 12);
-          // 마지막 패킷이 오디오면 그 길이만큼 더 이어진다
-          if (Number.isFinite(endMs) && size > 0) endMs += 0;
+          const t = readSystemTimeFromView(tv, 12);
+          if (Number.isFinite(t)) {
+            // 꼬리 쪽이 시각 순이 아닐 수 있으니 가장 늦은 것을 남긴다
+            if (!Number.isFinite(endMs) || t > endMs) endMs = t;
+            break;
+          }
         }
       }
     }

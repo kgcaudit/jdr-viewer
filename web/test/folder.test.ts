@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BufferByteSource } from '../src/core/byte-source';
 import { probeSegment, timeFromFileName, type SegmentInfo } from '../src/core/segment';
-import { buildLibrary, resolvePlayPosition, segmentIndexAt, gapAt } from '../src/core/library';
+import { buildLibrary, recomputeLibrary, resolvePlayPosition, segmentIndexAt, gapAt } from '../src/core/library';
 import { scanRecords } from '../src/core/records';
 import { formatRecordedTime } from '../src/core/time';
 import { buildJdrBlock, concatBlocks, gpsPayload, gsensorPayload, pcmTone, type SynthPacket } from './synth';
@@ -435,5 +435,95 @@ describe('data + event를 한 주행으로 묶기', () => {
       expect(lib.events, folder).toHaveLength(1);
       expect(lib.segments.map((s) => s.name), folder).toEqual(['a.jdr']);
     }
+  });
+});
+
+describe('프로브 종료 시각이 짧을 때', () => {
+  const T0 = Date.UTC(2026, 8, 12, 23, 44, 43);
+
+  /** 끝에 시각이 비어 있는 패킷이 붙은 파일 (실기기에서 흔하다) */
+  function fileWithBlankTail(seconds: number) {
+    const packets: SynthPacket[] = [];
+    const frames = seconds * 30;
+    for (let f = 0; f < frames; f++) {
+      packets.push({
+        tag: f % 90 === 0 ? '00VI' : '00VP',
+        payload: new Uint8Array(100), timeMs: T0 + Math.round((f * 1000) / 30), aux: f,
+      });
+    }
+    // 시각이 0인 꼬리 패킷 — 여기서 멈추면 종료 시각을 못 구한다
+    packets.push({ tag: '00SE', payload: new Uint8Array(12), timeMs: NaN });
+    packets.push({ tag: '00SE', payload: new Uint8Array(12), timeMs: NaN });
+    // 헤더 종료 시각은 실제보다 한참 이르게 적힌 상황
+    return new BufferByteSource(
+      buildJdrBlock(packets, 0, { endMs: T0 + 32_000 }),
+      'x.jdr',
+    );
+  }
+
+  it('꼬리에 빈 패킷이 있어도 진짜 종료 시각을 찾아낸다', async () => {
+    const src = fileWithBlankTail(69);
+    const seg = await probeSegment({ src, name: 'x.jdr', path: 'data/x.jdr', size: src.size });
+    const lastFrameMs = T0 + Math.round((69 * 30 - 1) * 1000 / 30);
+    expect(seg.endMs).toBe(lastFrameMs);
+    // 헤더만 믿었다면 32초짜리로 보였을 것이다
+    expect(seg.durationMs).toBeGreaterThan(60_000);
+  });
+
+  it('그 결과 파일 사이에 없는 빈 구간이 생기지 않는다', async () => {
+    const a = fileWithBlankTail(69);
+    const segA = await probeSegment({ src: a, name: 'a.jdr', path: 'data/a.jdr', size: a.size });
+    // 바로 이어지는 다음 파일
+    const nextStart = segA.endMs + 33;
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 69 * 30; f++) {
+      packets.push({ tag: f % 90 === 0 ? '00VI' : '00VP', payload: new Uint8Array(100), timeMs: nextStart + Math.round((f * 1000) / 30), aux: f });
+    }
+    const b = new BufferByteSource(buildJdrBlock(packets), 'b.jdr');
+    const segB = await probeSegment({ src: b, name: 'b.jdr', path: 'data/b.jdr', size: b.size });
+    expect(buildLibrary([segA, segB]).gaps).toEqual([]);
+  });
+});
+
+describe('실제로 열어 본 시각으로 타임라인을 고친다', () => {
+  const T0 = Date.UTC(2026, 8, 12, 23, 44, 43);
+  const f = (name: string, startMs: number, durSec: number): SegmentInfo => ({
+    id: `data/${name}`, name, path: `data/${name}`, folder: 'data', size: 70 << 20,
+    startMs, endMs: startMs + durSec * 1000, durationMs: durSec * 1000,
+    packetCount: 4000, ch0Count: 1800, ch1Count: 1800, gpsCount: 60, sensorCount: 600,
+    blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
+  });
+
+  it('짧게 잡혔던 구간이 늘어나면 빈 구간이 사라진다', () => {
+    // 프로브는 32초로 봤지만 실제로는 69초짜리였다
+    const lib = buildLibrary([f('a.jdr', T0, 32), f('b.jdr', T0 + 69_000, 69)]);
+    expect(lib.gaps).toHaveLength(1);
+    expect(lib.gaps[0].durationMs).toBe(37_000);
+
+    // 열어 보고 실제 시각으로 고친다
+    lib.segments[0].endMs = T0 + 69_000;
+    lib.segments[0].durationMs = 69_000;
+    recomputeLibrary(lib);
+
+    expect(lib.gaps).toEqual([]);
+    expect(lib.coveredMs).toBe(138_000);
+  });
+
+  it('고친 뒤 전체 범위와 길이도 따라온다', () => {
+    const lib = buildLibrary([f('a.jdr', T0, 32)]);
+    expect(lib.endMs).toBe(T0 + 32_000);
+    lib.segments[0].endMs = T0 + 69_000;
+    recomputeLibrary(lib);
+    expect(lib.endMs).toBe(T0 + 69_000);
+    expect(lib.spanMs).toBe(69_000);
+  });
+
+  it('시작 시각이 바뀌면 순서도 다시 잡는다', () => {
+    const lib = buildLibrary([f('a.jdr', T0 + 60_000, 60), f('b.jdr', T0 + 120_000, 60)]);
+    expect(lib.segments.map((s) => s.name)).toEqual(['a.jdr', 'b.jdr']);
+    lib.segments[0].startMs = T0 + 180_000;
+    lib.segments[0].endMs = T0 + 240_000;
+    recomputeLibrary(lib);
+    expect(lib.segments.map((s) => s.name)).toEqual(['b.jdr', 'a.jdr']);
   });
 });

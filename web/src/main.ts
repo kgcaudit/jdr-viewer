@@ -9,6 +9,7 @@ import {
   parseIndexFile, serializeIndexFile, type IndexEntry,
 } from './core/index-file';
 import { cacheKeyOf, fromCacheValue, ProbeCache, toCacheValue } from './core/probe-cache';
+import { createScreenWake, type WakeState } from './core/wake-lock';
 import {
   BOOKMARK_FILE_NAME, BookmarkStore, bookmarkAt, bookmarkId, defaultLabel,
   mergeBookmarks, parseBookmarks, serializeBookmarks, sortBookmarks, type Bookmark,
@@ -102,6 +103,7 @@ function showView(name: keyof typeof views): void {
   $('btn-back-calendar').hidden = !(name === 'main' && folderState !== null);
   // 즐겨찾기는 무엇이든 열려 있어야 의미가 있다
   $('btn-bookmarks').hidden = !(name === 'main' || name === 'calendar');
+  syncWakeChip(name);
 }
 
 function setControlsEnabled(enabled: boolean): void {
@@ -540,6 +542,17 @@ async function mount(): Promise<void> {
     $('btn-play').setAttribute('aria-label', playing ? '일시정지' : '재생');
   };
   s.player.onSegmentChange = (index, status) => onSegmentChange(index, status);
+  // 프로브 시각이 실제와 달라 타임라인이 고쳐지면 화면도 다시 그린다
+  s.player.onLibraryFixed = () => {
+    if (!s.merged) return;
+    stripLayout = renderStrip($('strip-track'), s.lib);
+    $('strip-start').textContent = formatRecordedTime(s.lib.startMs, false).slice(11);
+    $('strip-end').textContent = formatRecordedTime(s.lib.endMs, false).slice(11);
+    markActiveSegment($('strip-track'), s.player.segmentIndex);
+    updateStripCursor($('strip-track'), stripLayout, s.player.position);
+    drawTalkBands();
+    renderSegmentsPanel();
+  };
   s.player.onSegmentLoading = (index) => {
     const seg = s.lib.segments[index];
     for (let ch = 0; ch < 2; ch++) $(`ch${ch}-note`).textContent = '여는 중…';
@@ -755,6 +768,57 @@ seekEl.addEventListener('pointerup', commitSeek);
 
 $('btn-fit-map').addEventListener('click', () => {
   if (!map?.fitAll()) toast('표시할 경로가 없습니다');
+});
+
+// ── 화면 잠김 방지 ───────────────────────────────────
+
+/**
+ * 재생 화면이 열려 있는 동안 화면을 깨워 둔다.
+ *
+ * 멈춰 놓고 한 장면을 들여다보는 일이 잦은데 그 사이에 화면이 꺼지면
+ * 다시 켜고 잠금을 풀고 위치를 찾아야 한다.
+ * 화면이 켜져 있는 것 자체가 폰에서 가장 큰 전력 소모이므로
+ * **캘린더나 빈 화면으로 나가면 반드시 놓아준다.**
+ */
+const screenWake = createScreenWake();
+/** 사용자가 직접 끄면 이번 세션 동안은 다시 켜지 않는다 */
+let wakeOptedOut = false;
+
+const WAKE_LABEL: Record<WakeState, string> = {
+  on: '🔆 화면 켜둠',
+  fallback: '🔆 화면 켜둠',
+  off: '🌙 화면 꺼짐 허용',
+  unsupported: '화면 잠김 못 막음',
+};
+
+screenWake.onChange = (state) => {
+  const el = $<HTMLButtonElement>('btn-wake');
+  el.textContent = WAKE_LABEL[state];
+  el.classList.toggle('is-on', state === 'on' || state === 'fallback');
+  el.classList.toggle('is-off', state === 'off');
+  el.disabled = state === 'unsupported';
+  el.title = state === 'unsupported'
+    ? '이 환경에서는 화면 잠김을 막을 수 없습니다'
+    : state === 'fallback'
+      ? '표준 방식이 막혀 우회 방식으로 켜 두었습니다'
+      : '눌러서 켜고 끕니다. 전원 버튼으로 직접 잠그는 것은 막지 못합니다.';
+};
+
+function syncWakeChip(viewName: keyof typeof views): void {
+  const on = viewName === 'main';
+  $('btn-wake').hidden = !on;
+  if (on && !wakeOptedOut) void screenWake.enable();
+  else if (!on) void screenWake.disable();
+}
+
+$('btn-wake').addEventListener('click', () => {
+  wakeOptedOut = screenWake.wanted;
+  void screenWake.toggle();
+});
+
+// 다른 앱에 다녀오면 잠금이 자동으로 풀려 있다. 다시 잡지 않으면 안 걸린다.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void screenWake.refresh();
 });
 
 // ── 구간 내보내기 ────────────────────────────────────

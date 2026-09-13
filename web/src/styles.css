@@ -526,3 +526,21 @@ body {
 .evt-dur, .evt-name { color: var(--muted); font-variant-numeric: tabular-nums; }
 .evt-why { flex: 1 1 100%; color: var(--muted); font-size: 11px; }
 .cal-evt { color: var(--warn); font-weight: 700; }
+
+/* ── 화면 잠김 방지 ─────────────────────── */
+.note-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.note-row .file-note { flex: 1 1 auto; min-width: 0; }
+.wake-chip {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; min-height: 30px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.wake-chip.is-on { color: #b7791f; border-color: #b7791f; font-weight: 600; }
+.wake-chip.is-off { opacity: .7; }
+.wake-chip:disabled { cursor: not-allowed; opacity: .5; }
+.wake-chip:active:not(:disabled) { background: var(--surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .wake-chip:hover:not(:disabled) { background: var(--surface-2); }
+}

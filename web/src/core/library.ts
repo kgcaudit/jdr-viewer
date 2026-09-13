@@ -167,19 +167,37 @@ export function buildLibrary(all: SegmentInfo[]): Library {
   const valid = all.filter((s) => !s.error && Number.isFinite(s.startMs));
   const { chain: segments, duplicates, events } = buildChain(valid);
 
+  const lib: Library = {
+    segments, invalid, startMs: NaN, endMs: NaN, spanMs: 0, coveredMs: 0,
+    gaps: [], overlaps: [], events, duplicates,
+    totalBytes: all.reduce((s, x) => s + x.size, 0),
+  };
+  recomputeLibrary(lib);
+  return lib;
+}
+
+/**
+ * 시각이 바뀐 뒤 파생값을 다시 계산한다.
+ *
+ * 프로브는 헤더만 읽으므로 종료 시각이 실제보다 이를 수 있다. 그 파일을
+ * 실제로 열어 보면 진짜 시각을 알게 되는데, 그때 **빈 구간과 겹침을 다시
+ * 계산해야** 화면이 사실과 맞는다. 그대로 두면 없는 빈 구간이 계속 남는다.
+ */
+export function recomputeLibrary(lib: Library): void {
+  const segments = lib.segments;
+  segments.sort((a, b) => a.startMs - b.startMs || a.name.localeCompare(b.name));
+  lib.gaps = [];
+  lib.overlaps = [];
   if (segments.length === 0) {
-    return {
-      segments: [], invalid, startMs: NaN, endMs: NaN, spanMs: 0, coveredMs: 0,
-      gaps: [], overlaps: [], events: [], duplicates: [],
-      totalBytes: all.reduce((s, x) => s + x.size, 0),
-    };
+    lib.startMs = NaN;
+    lib.endMs = NaN;
+    lib.spanMs = 0;
+    lib.coveredMs = 0;
+    return;
   }
 
-  const startMs = segments[0].startMs;
+  lib.startMs = segments[0].startMs;
   let endMs = segments[0].endMs;
-  const gaps: Gap[] = [];
-  const overlaps: Overlap[] = [];
-
   for (let i = 1; i < segments.length; i++) {
     const prevEnd = endMs;
     const cur = segments[i];
@@ -187,16 +205,18 @@ export function buildLibrary(all: SegmentInfo[]): Library {
       const before = segments[i - 1];
       const a = fileNumberOf(before.name);
       const b = fileNumberOf(cur.name);
-      gaps.push({
+      lib.gaps.push({
         fromMs: prevEnd, toMs: cur.startMs, durationMs: cur.startMs - prevEnd,
         beforeName: before.name, afterName: cur.name,
         numberSkip: Number.isFinite(a) && Number.isFinite(b) && b > a ? b - a - 1 : -1,
       });
     } else if (cur.startMs < prevEnd - OVERLAP_THRESHOLD_MS) {
-      overlaps.push({ a: i - 1, b: i, fromMs: cur.startMs, toMs: Math.min(prevEnd, cur.endMs) });
+      lib.overlaps.push({ a: i - 1, b: i, fromMs: cur.startMs, toMs: Math.min(prevEnd, cur.endMs) });
     }
     endMs = Math.max(endMs, cur.endMs);
   }
+  lib.endMs = endMs;
+  lib.spanMs = endMs - lib.startMs;
 
   // 겹침을 빼고 실제로 덮인 시간을 구한다
   let coveredMs = 0;
@@ -208,15 +228,10 @@ export function buildLibrary(all: SegmentInfo[]): Library {
       cursor = s.endMs;
     }
   }
-
-  return {
-    segments, invalid, startMs, endMs,
-    spanMs: endMs - startMs,
-    coveredMs,
-    gaps, overlaps, events, duplicates,
-    totalBytes: all.reduce((s, x) => s + x.size, 0),
-  };
+  lib.coveredMs = coveredMs;
 }
+
+
 
 /** 절대 시각이 속한 세그먼트 인덱스. 없으면 -1. */
 export function segmentIndexAt(lib: Library, absMs: number): number {
