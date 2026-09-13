@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatDurationKo } from '../src/core/time';
 import { buildCalendar, dayKeyOf, monthGrid, SESSION_GAP_MS } from '../src/core/calendar';
 import type { SegmentInfo } from '../src/core/segment';
 
@@ -112,5 +113,41 @@ describe('달력 그리드', () => {
   it('윤년 2월도 맞게 센다', () => {
     expect(monthGrid(2024, 2).filter((c) => c.inMonth)).toHaveLength(29);
     expect(monthGrid(2026, 2).filter((c) => c.inMonth)).toHaveLength(28);
+  });
+});
+
+describe('길이 표기', () => {
+  it('1시간 미만은 시간으로 읽히면 안 된다 — 49분을 49시간으로 보이던 문제', () => {
+    expect(formatDurationKo(49 * 60 + 38.9)).toBe('49분 39초');
+    expect(formatDurationKo(28 * 60 + 33.5)).toBe('28분 34초');
+  });
+
+  it('1시간 이상은 시간과 분으로', () => {
+    expect(formatDurationKo(3600 + 13 * 60 + 26)).toBe('1시간 13분');
+    expect(formatDurationKo(49 * 3600 + 38 * 60)).toBe('49시간 38분');
+  });
+
+  it('딱 떨어지면 뒷단위를 붙이지 않는다', () => {
+    expect(formatDurationKo(3600)).toBe('1시간');
+    expect(formatDurationKo(120)).toBe('2분');
+  });
+
+  it('1분 미만은 초로', () => {
+    expect(formatDurationKo(38.9)).toBe('39초');
+    expect(formatDurationKo(0)).toBe('0초');
+  });
+
+  it('말이 안 되는 값은 —', () => {
+    expect(formatDurationKo(NaN)).toBe('—');
+    expect(formatDurationKo(-1)).toBe('—');
+  });
+
+  it('시·분·초 어느 것인지 글자만 보고 알 수 있다', () => {
+    // 콜론 표기는 단위를 알 수 없다. 그게 이번 문제의 원인이었다.
+    for (const sec of [59, 60, 3599, 3600, 3661, 90_000]) {
+      const out = formatDurationKo(sec);
+      expect(out, `${sec}초`).toMatch(/시간|분|초/);
+      expect(out, `${sec}초`).not.toContain(':');
+    }
   });
 });

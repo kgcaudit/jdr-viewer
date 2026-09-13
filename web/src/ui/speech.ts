@@ -9,7 +9,7 @@
  */
 import type { SpeechResult } from '../core/speech';
 import { speechTotalMs } from '../core/vad';
-import { formatDuration, formatRecordedTime } from '../core/time';
+import { formatDuration, formatDurationKo, formatRecordedTime } from '../core/time';
 import { escapeHtml, num } from './format';
 
 export interface SpeechPanelHandlers {
@@ -91,8 +91,8 @@ export function renderSpeechPanel(
 
   el.innerHTML = `
     <p class="section-title">대화 — ${escapeHtml(r.name)}</p>
-    <p class="muted small">${num(r.spans.length)}곳 · 합계 ${formatDuration(talkMs / 1000)}
-      / 음성 ${formatDuration(r.audioMs / 1000)} (${ratio.toFixed(1)}%)</p>
+    <p class="muted small">${num(r.spans.length)}곳 · 합계 ${formatDurationKo(talkMs / 1000)}
+      / 음성 ${formatDurationKo(r.audioMs / 1000)} (${ratio.toFixed(1)}%)</p>
     ${body}
     <div class="sp-foot">
       <button class="btn" type="button" id="sp-again">다시 훑기</button>

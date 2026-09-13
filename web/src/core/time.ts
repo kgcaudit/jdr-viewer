@@ -52,6 +52,24 @@ export function formatShortDate(value: string | number): string {
   return `${pad(d.getUTCFullYear() % 100)}/${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}`;
 }
 
+/**
+ * 길이를 단위와 함께. `1시간 13분` · `49분 39초` · `39초`
+ *
+ * `formatDuration`은 `49:38.9`처럼 콜론으로 내주는데, 재생 위치에는 알맞지만
+ * **얼마나 찍혔나**를 보여줄 때는 시·분·초 중 무엇인지 알 수 없다.
+ * (실제로 49분짜리 날이 "49시간"으로 읽히는 일이 있었다.)
+ */
+export function formatDurationKo(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return m > 0 ? `${h}시간 ${m}분` : `${h}시간`;
+  if (m > 0) return s > 0 ? `${m}분 ${s}초` : `${m}분`;
+  return `${s}초`;
+}
+
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '—';
   const total = Math.floor(seconds);

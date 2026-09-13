@@ -7,7 +7,7 @@
 import { isEventFolder, type Gap, type Library } from '../core/library';
 import type { SegmentInfo } from '../core/segment';
 import { StripLayout } from '../core/strip-layout';
-import { formatDuration, formatRecordedTime } from '../core/time';
+import { formatDurationKo, formatRecordedTime } from '../core/time';
 import { bytes, escapeHtml, num } from './format';
 
 const TIME_SOURCE_LABEL: Record<string, string> = {
@@ -61,7 +61,7 @@ export function renderStrip(track: HTMLElement, lib: Library): StripLayout | nul
       const g = lib.gaps[it.index];
       // 빈 구간은 숨기지 않는다 — 녹화 공백도 사실이다. 폭은 실제 길이에 비례한다.
       parts.push(`<span class="strip-gap" style="left:${left}%;width:${width}%" title="${escapeHtml(
-        `빈 구간 ${formatDuration(g.durationMs / 1000)}\n${formatRecordedTime(g.fromMs, false)} ~ ${formatRecordedTime(g.toMs, false)}\n${gapCause(g)}`,
+        `빈 구간 ${formatDurationKo(g.durationMs / 1000)}\n${formatRecordedTime(g.fromMs, false)} ~ ${formatRecordedTime(g.toMs, false)}\n${gapCause(g)}`,
       )}"></span>`);
     }
   }
@@ -108,14 +108,14 @@ function gapSection(gaps: Gap[]): string {
   const broken = gaps.filter((g) => g.numberSkip === 0).length;
 
   const head = [
-    `빈 구간 ${num(gaps.length)}곳 · 합계 ${formatDuration(totalMs / 1000)}`,
+    `빈 구간 ${num(gaps.length)}곳 · 합계 ${formatDurationKo(totalMs / 1000)}`,
     missing > 0 ? `파일 ${num(missing)}개 없음` : '',
     broken > 0 ? `번호는 이어지는데 끊긴 곳 ${num(broken)}곳` : '',
   ].filter(Boolean).join(' · ');
 
   const rows = gaps.slice(0, 60).map((g) => `<div class="gap-row${g.numberSkip > 0 ? ' is-missing' : ''}">
     <span class="gap-time">${formatRecordedTime(g.fromMs, false).slice(11, 19)} ~ ${formatRecordedTime(g.toMs, false).slice(11, 19)}</span>
-    <span class="gap-dur">${formatDuration(g.durationMs / 1000)}</span>
+    <span class="gap-dur">${formatDurationKo(g.durationMs / 1000)}</span>
     <span class="gap-why">${escapeHtml(gapCause(g))}</span>
   </div>`).join('');
 
@@ -134,7 +134,7 @@ function gapSection(gaps: Gap[]): string {
 function eventSection(lib: Library): string {
   const rows = lib.events.slice(0, 60).map((e) => `<div class="evt-row">
     <span class="evt-time">${formatRecordedTime(e.fromMs, false).slice(11, 19)}</span>
-    <span class="evt-dur">${formatDuration((e.toMs - e.fromMs) / 1000)}</span>
+    <span class="evt-dur">${formatDurationKo((e.toMs - e.fromMs) / 1000)}</span>
     <span class="evt-name">${escapeHtml(e.name)}</span>
     <span class="evt-why">${e.inChain ? 'data에 없는 구간을 채움' : 'data와 같은 시각 — 표시로만'}</span>
   </div>`).join('');
@@ -156,7 +156,7 @@ function segmentRow(s: SegmentInfo, index: number, activeIndex: number): string 
     <span class="seg-time">${formatRecordedTime(s.startMs, false)}</span>
     <span class="seg-main">
       <span class="seg-name">${evt ? '<span class="seg-evt">이벤트</span> ' : ''}${escapeHtml(s.name)}</span>
-      <span class="seg-meta">${s.folder ? escapeHtml(s.folder) + ' · ' : ''}${formatDuration(s.durationMs / 1000)} · ${bytes(s.size)}${
+      <span class="seg-meta">${s.folder ? escapeHtml(s.folder) + ' · ' : ''}${formatDurationKo(s.durationMs / 1000)} · ${bytes(s.size)}${
         flags.length ? ' · ' + flags.join(' · ') : ''
       }</span>
     </span>
@@ -183,7 +183,7 @@ export function renderSegments(
              (f) => `<label class="folder-item">
                <input type="checkbox" data-folder="${escapeHtml(f.folder)}" ${f.selected ? 'checked' : ''} />
                <span><strong>${escapeHtml(f.folder || '(최상위)')}</strong>
-               <span class="muted">${num(f.count)}개 · ${bytes(f.bytes)} · ${formatDuration(f.durationMs / 1000)}</span></span>
+               <span class="muted">${num(f.count)}개 · ${bytes(f.bytes)} · ${formatDurationKo(f.durationMs / 1000)}</span></span>
              </label>`,
            )
            .join('')}</div>

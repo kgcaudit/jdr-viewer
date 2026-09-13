@@ -13,7 +13,7 @@ import {
   estimateRangeBytes, RANGE_LABEL, rangeFileName, segmentsInRange,
   type RangeKind, type TimeRange,
 } from '../core/range-export';
-import { formatDuration, formatRecordedTime } from '../core/time';
+import { formatDurationKo, formatRecordedTime } from '../core/time';
 import { bytes, escapeHtml, num } from './format';
 
 export interface RangeExportHandlers {
@@ -90,7 +90,7 @@ export function renderRangeExport(
     <p class="rng-sum${valid ? '' : ' status-warn'}">
       ${valid
         ? `${escapeHtml(formatRecordedTime(range.fromMs, false))} ~ ${escapeHtml(hhmmss(range.toMs))}
-           · <strong>${escapeHtml(formatDuration(durationMs / 1000))}</strong> · 원본 ${num(hit.length)}개 파일`
+           · <strong>${escapeHtml(formatDurationKo(durationMs / 1000))}</strong> · 원본 ${num(hit.length)}개 파일`
         : durationMs <= 0 ? '끝이 시작보다 빠릅니다' : '이 시간에 해당하는 영상이 없습니다'}
     </p>
 

@@ -6,7 +6,7 @@
 import type { CalendarIndex, DayEntry, MonthKey } from '../core/calendar';
 import { monthGrid } from '../core/calendar';
 import { INDEX_FILE_NAME } from '../core/index-file';
-import { formatDuration, formatRecordedTime } from '../core/time';
+import { formatDurationKo, formatRecordedTime } from '../core/time';
 import { bytes, escapeHtml, num } from './format';
 import type { FolderStat } from './segments';
 
@@ -91,10 +91,10 @@ function dayCell(cell: { key: string; day: number; inMonth: boolean }, index: Ca
   const height = Math.max(8, Math.round(ratio * 100));
   return `<button class="cal-cell is-on${cell.key === selected ? ' is-selected' : ''}" type="button"
       data-day="${cell.key}"
-      title="${escapeHtml(`${cell.key} · ${countLabel(day.segments.length, day.eventCount)} · ${formatDuration(day.coveredMs / 1000)} · ${bytes(day.bytes)}`)}">
+      title="${escapeHtml(`${cell.key} · ${countLabel(day.segments.length, day.eventCount)} · ${formatDurationKo(day.coveredMs / 1000)} · ${bytes(day.bytes)}`)}">
     <span class="cal-day">${cell.day}</span>
     <span class="cal-bar" style="height:${height}%"></span>
-    <span class="cal-meta">${num(day.segments.length - day.eventCount)}개${day.eventCount > 0 ? '<span class="cal-evt">+' + num(day.eventCount) + '</span>' : ''}<br>${formatDuration(day.coveredMs / 1000).replace(/^(\d+):/, '$1시간 ')}</span>
+    <span class="cal-meta">${num(day.segments.length - day.eventCount)}개${day.eventCount > 0 ? '<span class="cal-evt">+' + num(day.eventCount) + '</span>' : ''}<br>${formatDurationKo(day.coveredMs / 1000)}</span>
   </button>`;
 }
 
@@ -104,7 +104,7 @@ function sessionList(day: DayEntry): string {
     .map(
       (s, i) => `<button class="session-row" type="button" data-session="${i}">
         <span class="session-time">${hhmm(s.startMs)} ~ ${hhmm(s.endMs)}</span>
-        <span class="session-meta">${countLabel(s.segments.length, s.eventCount)} · ${formatDuration(s.coveredMs / 1000)}</span>
+        <span class="session-meta">${countLabel(s.segments.length, s.eventCount)} · ${formatDurationKo(s.coveredMs / 1000)}</span>
       </button>`,
     )
     .join('');
@@ -114,7 +114,7 @@ function sessionList(day: DayEntry): string {
     }</p>
     <div class="session-list">${rows}</div>
     <button class="btn btn-primary cal-open-day" type="button" data-open-day="${day.key}">
-      이 날짜 전체 열기 (${countLabel(day.segments.length, day.eventCount)} · ${formatDuration(day.coveredMs / 1000)})
+      이 날짜 전체 열기 (${countLabel(day.segments.length, day.eventCount)} · ${formatDurationKo(day.coveredMs / 1000)})
     </button>`;
 }
 

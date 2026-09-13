@@ -2,7 +2,7 @@
 import type { JdrDocument } from '../core/types';
 import type { Library } from '../core/library';
 import type { SegmentInfo } from '../core/segment';
-import { formatDuration, formatRecordedTime } from '../core/time';
+import { formatDurationKo, formatRecordedTime } from '../core/time';
 import { bytes, escapeHtml, num } from './format';
 
 export interface SummaryInput {
@@ -29,8 +29,8 @@ function librarySection(lib: Library): string {
     <dl class="kv">
       <dt>구간</dt><dd>${num(lib.segments.length)}개${lib.invalid.length ? ` <span class="status-warn">(읽지 못한 파일 ${num(lib.invalid.length)}개)</span>` : ''}</dd>
       <dt>전체 범위</dt><dd>${formatRecordedTime(lib.startMs)}<br>~ ${formatRecordedTime(lib.endMs)}</dd>
-      <dt>벽시계 길이</dt><dd>${formatDuration(lib.spanMs / 1000)}</dd>
-      <dt>실제 영상</dt><dd>${formatDuration(lib.coveredMs / 1000)} <span class="muted">(${coverage.toFixed(1)}%)</span></dd>
+      <dt>벽시계 길이</dt><dd>${formatDurationKo(lib.spanMs / 1000)}</dd>
+      <dt>실제 영상</dt><dd>${formatDurationKo(lib.coveredMs / 1000)} <span class="muted">(${coverage.toFixed(1)}%)</span></dd>
       <dt>빈 구간</dt><dd>${gapSummary(lib)}</dd>
       <dt>이벤트</dt><dd>${lib.events.length === 0 ? '없음' : `${num(lib.events.length)}건`}</dd>
       <dt>전체 크기</dt><dd>${bytes(lib.totalBytes)}</dd>
@@ -92,7 +92,7 @@ function gapSummary(lib: Library): string {
   if (lib.gaps.length === 0) return '없음';
   const totalMs = lib.gaps.reduce((a, g) => a + g.durationMs, 0);
   const missing = lib.gaps.reduce((a, g) => a + Math.max(0, g.numberSkip), 0);
-  const parts = [`${num(lib.gaps.length)}곳 · 합계 ${formatDuration(totalMs / 1000)}`];
+  const parts = [`${num(lib.gaps.length)}곳 · 합계 ${formatDurationKo(totalMs / 1000)}`];
   if (missing > 0) parts.push(`파일 ${num(missing)}개 없음`);
   return parts.join('<br>');
 }
@@ -134,7 +134,7 @@ export function renderSummary(el: HTMLElement, input: SummaryInput): void {
     <dl class="kv">
       <dt>시작</dt><dd>${formatRecordedTime(doc.firstTimeMs)}</dd>
       <dt>종료</dt><dd>${formatRecordedTime(doc.lastTimeMs)}</dd>
-      <dt>길이</dt><dd>${formatDuration(doc.durationSec)} <span class="muted">(${doc.durationSec.toFixed(3)}초)</span></dd>
+      <dt>길이</dt><dd>${formatDurationKo(doc.durationSec)} <span class="muted">(${doc.durationSec.toFixed(3)}초)</span></dd>
       <dt>JEB 블록</dt><dd>${num(doc.blocks.length)}개</dd>
       <dt>패킷</dt><dd>${num(doc.packets.count)}개</dd>
     </dl>
