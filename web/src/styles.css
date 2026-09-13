@@ -545,3 +545,10 @@ body {
   .wake-chip:hover:not(:disabled) { background: var(--surface-2); }
 }
 .hash { font-size: 11px; word-break: break-all; }
+
+/* 인덱스 저장 / 갱신 — 짝이라 나란히 두되, 좁은 화면에서는 접힌다 */
+.idx-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

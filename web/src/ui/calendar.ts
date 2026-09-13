@@ -18,6 +18,7 @@ export interface CalendarHandlers {
   onToggleFolder(folder: string, selected: boolean): void;
   onMonthChange(index: number): void;
   onSaveIndex(): void;
+  onRebuildIndex(): void;
 }
 
 /** 이번에 파일들을 어디서 읽어왔는지 */
@@ -31,6 +32,8 @@ export interface LoadStats {
   hadIndexFile: boolean;
   /** 그 인덱스에 없던 파일 수 — 대개 인덱스를 저장한 뒤 새로 녹화된 것들 */
   missingFromIndex: number;
+  /** 방금 "갱신"으로 원본에서 전부 다시 읽었는가 */
+  rebuilt?: boolean;
 }
 
 function loadSection(stats: LoadStats): string {
@@ -52,19 +55,30 @@ function loadSection(stats: LoadStats): string {
        ${escapeHtml(INDEX_FILE_NAME)}을 덮어쓰면 다음부터 건너뜁니다.</p>`
     : '';
 
-  const hint = stale
-    ? `다시 저장하면 기존 것까지 합쳐 ${num(stats.total)}개가 한 파일로 나옵니다.`
-    : stats.fromIndexFile === stats.total && stats.total > 0
-      ? '인덱스 파일 덕분에 헤더 훑기를 건너뛰었습니다.'
-      : '브라우저는 폴더에 직접 쓸 수 없어 다운로드 폴더에 저장됩니다. 그 파일을 이 폴더로 옮겨 두면 다음에 열 때 헤더 훑기를 건너뜁니다. 원본 JDR은 건드리지 않습니다.';
+  const hint = stats.rebuilt
+    ? `원본 ${num(stats.total)}개를 다시 읽었습니다. 저장해서 폴더의 ${escapeHtml(INDEX_FILE_NAME)}을 덮어써야 다음에도 이 결과가 쓰입니다.`
+    : stale
+      ? `다시 저장하면 기존 것까지 합쳐 ${num(stats.total)}개가 한 파일로 나옵니다.`
+      : stats.fromIndexFile === stats.total && stats.total > 0
+        ? '인덱스 파일 덕분에 헤더 훑기를 건너뛰었습니다.'
+        : '브라우저는 폴더에 직접 쓸 수 없어 다운로드 폴더에 저장됩니다. 그 파일을 이 폴더로 옮겨 두면 다음에 열 때 헤더 훑기를 건너뜁니다. 원본 JDR은 건드리지 않습니다.';
 
+  // 저장은 "지금 아는 것을 파일로", 갱신은 "원본에서 다시 알아내기"다.
+  // 둘은 짝이라 나란히 둔다 — 인덱스가 꼬였을 때 갱신하고 곧바로 저장한다.
+  const wantSave = stale || stats.rebuilt === true;
   return `
     <p class="section-title">불러온 방식</p>
     ${err}
     ${staleNote}
     <p class="muted small" style="margin:0 0 8px">${parts.join(' · ') || '없음'}</p>
-    <button class="btn${stale ? ' btn-primary' : ''}" type="button" id="btn-save-index">인덱스 ${stale ? '다시 ' : ''}저장 (${escapeHtml(INDEX_FILE_NAME)})</button>
-    <p class="muted small" style="margin:8px 0 0">${hint}</p>`;
+    <div class="idx-row">
+      <button class="btn${wantSave ? ' btn-primary' : ''}" type="button" id="btn-save-index">인덱스 ${stale ? '다시 ' : ''}저장 (${escapeHtml(INDEX_FILE_NAME)})</button>
+      <button class="btn" type="button" id="btn-rebuild-index">인덱스 갱신</button>
+    </div>
+    <p class="muted small" style="margin:8px 0 0">${hint}</p>
+    <p class="muted small" style="margin:6px 0 0"><strong>갱신</strong>은 인덱스 파일과 브라우저 캐시를
+      모두 무시하고 원본 JDR 헤더를 처음부터 다시 읽습니다. 시각이나 길이가 엉뚱하게 보일 때 쓰세요.
+      원본은 건드리지 않습니다.</p>`;
 }
 
 /**
@@ -186,4 +200,5 @@ export function renderCalendar(
     c.addEventListener('change', () => handlers.onToggleFolder(c.dataset.folder ?? '', c.checked)),
   );
   el.querySelector<HTMLButtonElement>('#btn-save-index')?.addEventListener('click', () => handlers.onSaveIndex());
+  el.querySelector<HTMLButtonElement>('#btn-rebuild-index')?.addEventListener('click', () => handlers.onRebuildIndex());
 }

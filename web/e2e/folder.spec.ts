@@ -279,6 +279,64 @@ test('파일이 바뀌면 그 파일만 다시 읽는다', async ({ page }, test
   }
 });
 
+test('인덱스가 꼬이면 갱신 버튼으로 원본에서 다시 만든다', async ({ page }, testInfo) => {
+  await openFolder(page);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#btn-save-index').click(),
+  ]);
+  const saved = join(testInfo.outputDir, 'idx-bad.json');
+  await download.saveAs(saved);
+
+  const { readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  // 모든 행의 종료 시각을 한 시간 뒤로 밀어 "꼬인 인덱스"를 만든다.
+  // 크기·수정시각은 그대로라 앱은 이 인덱스를 믿는다 — 사용자가 손쓸 수 없던 상황이다.
+  const idx = JSON.parse(readFileSync(saved, 'utf8'));
+  for (const row of idx.rows) row[4] = row[3] + 3_600_000;
+  writeFileSync(join(dir, 'jdr-index.json'), JSON.stringify(idx));
+
+  try {
+    const fresh = await page.context().browser()!.newContext();
+    const p2 = await fresh.newPage();
+    await p2.goto('http://127.0.0.1:5173/');
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+    await expect(p2.locator('#calendar')).toContainText('인덱스 파일 10개');
+
+    // 저장과 갱신은 나란히 있어야 한다 — 꼬인 걸 고치고 곧바로 저장하는 흐름이다
+    await expect(p2.locator('.idx-row #btn-save-index')).toBeVisible();
+    await expect(p2.locator('.idx-row #btn-rebuild-index')).toBeVisible();
+
+    const meta = p2.locator('.cal-cell.is-on .cal-meta').first();
+    const before = (await meta.textContent()) ?? '';
+    expect(before, '꼬인 인덱스라 길이가 부풀어 있다').toContain('시간');
+
+    p2.once('dialog', (d) => void d.accept());
+    await p2.locator('#btn-rebuild-index').click();
+
+    // 인덱스도 캐시도 쓰지 않고 전부 원본에서 읽는다
+    await expect(p2.locator('#calendar')).toContainText('직접 읽음 10개', { timeout: 60_000 });
+    await expect(p2.locator('#calendar')).not.toContainText('인덱스 파일 10개');
+    await expect(p2.locator('#calendar')).toContainText('원본 10개를 다시 읽었습니다');
+
+    const after = (await meta.textContent()) ?? '';
+    expect(after, '원본 값으로 돌아와야 한다').not.toContain('시간');
+    expect(after).not.toBe(before);
+
+    // 브라우저 캐시에도 낡은 값이 남아 있었다. 갱신이 그것까지 덮어써야
+    // 다음에 열 때 다시 꼬이지 않는다.
+    rmSync(join(dir, 'jdr-index.json'), { force: true });
+    await p2.goto('http://127.0.0.1:5173/');
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+    await expect(p2.locator('#calendar')).toContainText('브라우저 캐시 10개');
+    expect(await p2.locator('.cal-cell.is-on .cal-meta').first().textContent()).not.toContain('시간');
+    await fresh.close();
+  } finally {
+    rmSync(join(dir, 'jdr-index.json'), { force: true });
+  }
+});
+
 test('인덱스 뒤에 추가된 파일은 그것만 읽고, 두 번째부터는 캐시가 받는다', async ({ page }, testInfo) => {
   await openFolder(page);
   const [download] = await Promise.all([

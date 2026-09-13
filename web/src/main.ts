@@ -419,7 +419,77 @@ function drawCalendar(): void {
       drawCalendar();
     },
     onSaveIndex: () => saveIndexFile(),
+    onRebuildIndex: () => void rebuildIndex(),
   }, fs.stats);
+}
+
+/**
+ * 인덱스를 원본에서 처음부터 다시 만든다.
+ *
+ * 인덱스 파일도, 브라우저 캐시도 믿지 않고 **원본 JDR 헤더를 전부 다시 읽는다.**
+ * 인덱스는 저장한 시점에 멈춘 사본이라, 그 뒤에 기기가 같은 이름으로 다시 쓰거나
+ * 다른 도구가 파일을 손대면 실제와 어긋난다. 그때 시각·길이가 엉뚱하게 보이는데,
+ * 사용자에게는 손쓸 방법이 없었다. 이게 그 방법이다.
+ *
+ * 폴더를 다시 고를 필요는 없다 — File 객체를 계속 들고 있기 때문이다.
+ */
+async function rebuildIndex(): Promise<void> {
+  const fs = folderState;
+  if (!fs) return;
+  const targets = fs.allSegments
+    .map((seg) => ({ seg, file: fs.files.get(seg.id) }))
+    .filter((x): x is { seg: SegmentInfo; file: File } => !!x.file);
+  if (targets.length === 0) return;
+
+  // 수백 개면 시간이 걸린다. 잘못 눌렀을 때 붙잡히지 않도록 먼저 묻는다.
+  if (!confirm(`원본 ${num(targets.length)}개를 처음부터 다시 읽습니다.\n인덱스 파일과 브라우저 캐시는 무시합니다. 계속할까요?`)) {
+    return;
+  }
+
+  session?.player.pause();
+  showView('loading');
+  $('loading-phase').textContent = '원본에서 인덱스를 다시 만드는 중…';
+  setBar(0);
+
+  const rebuilt: SegmentInfo[] = [];
+  const toStore: ReturnType<typeof toCacheValue>[] = [];
+  for (let i = 0; i < targets.length; i++) {
+    const { seg, file } = targets[i];
+    const meta = { name: seg.name, path: seg.path, folder: seg.folder, size: file.size };
+    const next = await probeSegment({
+      src: new BlobByteSource(file, file.name), name: meta.name, path: meta.path, size: meta.size,
+    });
+    rebuilt.push(next);
+    toStore.push(toCacheValue(cacheKeyOf(file), next));
+    if ((i & 31) === 0) {
+      setBar((i / targets.length) * 100);
+      $('loading-detail').textContent = `${num(i + 1)} / ${num(targets.length)}개`;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  setBar(100);
+  // 낡은 값을 덮어써야 다음에 열 때도 고쳐진 채로 나온다
+  await probeCache.putMany(toStore);
+
+  // 켜 둔 폴더는 그대로 둔다 — 갱신은 "다시 읽기"지 "처음부터 다시 고르기"가 아니다
+  const selected = new Set(fs.folders.filter((f) => f.selected).map((f) => f.folder));
+  const folders = buildFolderStats(rebuilt);
+  for (const f of folders) f.selected = selected.size === 0 || selected.has(f.folder);
+  if (folders.every((f) => !f.selected)) for (const f of folders) f.selected = true;
+
+  fs.allSegments = rebuilt;
+  fs.folders = folders;
+  fs.calendar = buildCalendar(selectedSegments(rebuilt, folders));
+  fs.monthIndex = Math.max(0, Math.min(fs.monthIndex, fs.calendar.months.length - 1));
+  if (!fs.calendar.byKey.has(fs.selectedDay)) fs.selectedDay = '';
+  fs.stats = {
+    total: rebuilt.length, fromIndexFile: 0, fromCache: 0, probed: rebuilt.length,
+    hadIndexFile: false, missingFromIndex: 0, rebuilt: true,
+  };
+
+  drawCalendar();
+  showView('calendar');
+  toast(`원본 ${num(rebuilt.length)}개를 다시 읽었습니다 — 인덱스를 저장해 폴더의 것을 덮어쓰세요`);
 }
 
 /**
@@ -445,9 +515,10 @@ function saveIndexFile(): void {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
   toast(`${INDEX_FILE_NAME} 저장 · ${num(items.length)}개 · ${bytes(blob.size)} — 다운로드 폴더에서 이 폴더로 옮겨 두세요`);
-  // 방금 저장한 파일에는 새 파일까지 들어 있으므로 경고를 거둔다
-  if (fs.stats.missingFromIndex > 0) {
+  // 방금 저장한 파일에는 새 파일(과 갱신 결과)까지 들어 있으므로 재촉을 거둔다
+  if (fs.stats.missingFromIndex > 0 || fs.stats.rebuilt) {
     fs.stats.missingFromIndex = 0;
+    fs.stats.rebuilt = false;
     fs.stats.indexError = undefined;
     drawCalendar();
   }
