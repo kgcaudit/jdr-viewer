@@ -26,3 +26,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Node (web/)
+node_modules/
+dist/
+test-results/
+playwright-report/

@@ -2,7 +2,7 @@
 
 IROAD 블랙박스 `.jdr` 파일을 **안드로이드 폰에서 직접** 열어보기 위한 프로젝트입니다.
 
-현재 상태: **설계·기술 검토 단계** (앱 코드 착수 전)
+현재 상태: **웹 프로토타입 동작** (`web/`)
 
 ## 배경
 
@@ -18,7 +18,9 @@ PC용 Python CLI 추출 도구(`reference/jdr_extractor_tool/`)가 먼저 만들
 | [`docs/00-jdr-format-spec.md`](docs/00-jdr-format-spec.md) | JDR 바이너리 포맷 사양 (역분석 정리, 구현 기준) |
 | [`docs/01-android-knowledge.md`](docs/01-android-knowledge.md) | **안드로이드 앱 제작에 필요한 지식 검토** |
 | [`docs/02-roadmap.md`](docs/02-roadmap.md) | 안드로이드 단계별 개발 로드맵 |
-| [`docs/03-web-app-feasibility.md`](docs/03-web-app-feasibility.md) | **반응형 웹으로 만들 수 있는가 — 타당성 검토** |
+| [`docs/03-web-app-feasibility.md`](docs/03-web-app-feasibility.md) | 반응형 웹 타당성 검토 |
+| [`docs/04-prototype-status.md`](docs/04-prototype-status.md) | **프로토타입 현황 — 검증된 것과 안 된 것** |
+| [`web/README.md`](web/README.md) | 웹 앱 실행 방법과 구조 |
 
 ## 핵심 결론 요약
 
@@ -32,6 +34,14 @@ PC용 Python CLI 추출 도구(`reference/jdr_extractor_tool/`)가 먼저 만들
 - **파서 로직은 UI·플랫폼과 분리**해서 작성합니다. 웹(TypeScript)이든
   안드로이드(Kotlin)든 재사용할 수 있어야 합니다.
 
+## 빠른 시작
+
+```bash
+cd web && npm install && npm run dev   # http://127.0.0.1:5173
+```
+
+![JDR Viewer](screenshots/01-desktop-summary.png)
+
 ## 플랫폼 선택 (검토 결과)
 
 | | 안드로이드 네이티브 | 반응형 웹 |
@@ -41,7 +51,7 @@ PC용 Python CLI 추출 도구(`reference/jdr_extractor_tool/`)가 먼저 만들
 | 배포 | Play 심사·정책·서명 | URL 하나 |
 | 이 저장소 환경에서 빌드 | ❌ (Android SDK 없음, google maven 차단) | ✅ (Node 22 + npm 사용 가능) |
 
-→ **웹 우선 개발을 권장**합니다. 상세 근거는 `docs/03-web-app-feasibility.md` 12장.
+→ **웹 우선으로 개발했습니다.** 상세 근거는 `docs/03-web-app-feasibility.md` 12장.
 
 ## 면책
 
