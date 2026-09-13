@@ -17,7 +17,8 @@ import type { SegmentInfo, TimeSource } from './segment';
 
 export const INDEX_FILE_NAME = 'jdr-index.json';
 export const INDEX_FORMAT = 'jdr-viewer-index';
-export const INDEX_VERSION = 1;
+/** 2: 종료 시각을 실제 마지막 패킷 기준으로 바로잡음 (v1은 다시 읽는다) */
+export const INDEX_VERSION = 2;
 
 /** 행을 배열로 저장한다 — 키 이름이 828번 반복되면 파일이 3배가 된다 */
 const FIELDS = [
@@ -91,6 +92,11 @@ export function parseIndexFile(text: string): Map<string, IndexEntry> {
   }
   if (typeof obj.version !== 'number' || obj.version > INDEX_VERSION) {
     throw new IndexFileError(`지원하지 않는 인덱스 버전입니다 (${String(obj.version)})`);
+  }
+  if (obj.version < INDEX_VERSION) {
+    throw new IndexFileError(
+      `인덱스 형식이 갱신되었습니다 (v${obj.version} → v${INDEX_VERSION}). 다시 읽은 뒤 내보내 주세요`,
+    );
   }
   if (!Array.isArray(obj.rows)) {
     throw new IndexFileError('인덱스 파일에 rows가 없습니다');

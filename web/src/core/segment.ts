@@ -132,13 +132,19 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
   let endMs = readSystemTimeFromView(lastHeader, 0xa4);
   let timeSource: TimeSource = 'header';
 
+  // 헤더의 종료 시각은 실제 마지막 패킷보다 이를 수 있다(실기기에서 1.8초 차이 확인).
+  // 그대로 두면 재생 길이 표시가 어긋나고, 파일 사이에 없는 빈 구간이 생긴다.
+  // 읽기 2번이면 확인되므로 항상 대조한다.
+  const fromPackets = await timeRangeFromPackets(src, offsets[0], lastIndexOffset, lastCount);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
-    const fromPackets = await timeRangeFromPackets(src, offsets[0], lastIndexOffset, lastCount);
     if (Number.isFinite(fromPackets.startMs)) {
       startMs = fromPackets.startMs;
       endMs = fromPackets.endMs;
       timeSource = 'packets';
     }
+  } else if (Number.isFinite(fromPackets.endMs) && fromPackets.endMs > endMs) {
+    endMs = fromPackets.endMs;
+    timeSource = 'packets';
   }
   if (!Number.isFinite(startMs)) {
     const fromName = timeFromFileName(name);

@@ -83,7 +83,7 @@ export function renderExports(
       title: '음성 (WAV)',
       detail: `8kHz 모노 16bit · 약 ${bytes(doc.audio.sampleCount * 2 + 44)}`,
       disabled: doc.audio.packetCount === 0,
-      make: () => extractWav(src, doc),
+      make: (onProgress) => extractWav(src, doc, onProgress),
     },
   ];
 

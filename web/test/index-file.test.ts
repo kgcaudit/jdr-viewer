@@ -74,7 +74,10 @@ describe('인덱스 파일', () => {
     expect(() => parseIndexFile('{"format":"other"}')).toThrow(/JDR Viewer 인덱스 파일이 아닙니다/);
     expect(() => parseIndexFile('{"format":"jdr-viewer-index","version":99,"rows":[]}'))
       .toThrow(/지원하지 않는 인덱스 버전/);
-    expect(() => parseIndexFile('{"format":"jdr-viewer-index","version":1}'))
+    // 옛 버전은 조용히 쓰지 않고 다시 읽게 한다 (계산 방식이 바뀌었으므로)
+    expect(() => parseIndexFile('{"format":"jdr-viewer-index","version":1,"rows":[]}'))
+      .toThrow(/인덱스 형식이 갱신되었습니다/);
+    expect(() => parseIndexFile('{"format":"jdr-viewer-index","version":2}'))
       .toThrow(/rows가 없습니다/);
   });
 

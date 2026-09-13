@@ -357,3 +357,15 @@ body {
 .map-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
 .map-bar p { margin: 0; }
 .btn-sm { min-height: 32px; padding: 5px 10px; font-size: 12px; flex: 0 0 auto; }
+
+/*
+ * 범례가 값에 따라 좌우로 흔들리지 않도록 폭을 완전히 고정한다.
+ * min-width로는 음수 부호가 붙는 순간(-0.051) 한 자가 늘어나 밀린다.
+ */
+.u-legend { font-variant-numeric: tabular-nums; }
+.u-legend .u-value {
+  display: inline-block; width: 6.5ch; text-align: right;
+  overflow: hidden; white-space: nowrap;
+}
+.u-legend .u-label { display: inline-block; min-width: 2.5ch; text-align: left; }
+.u-legend tr.u-series th { white-space: nowrap; }

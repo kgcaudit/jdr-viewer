@@ -136,13 +136,18 @@ export class SequencePlayer {
 
   /** 현재 파일 안에서의 위치(ms) */
   get filePosition(): number {
+    if (this.inner) return this.inner.position;
     const seg = this.currentSegment;
     return seg ? Math.max(0, this.lastAbsMs - seg.startMs) : 0;
   }
 
-  /** 현재 파일의 길이(ms) */
+  /**
+   * 현재 파일의 길이(ms).
+   * 헤더에 적힌 종료 시각이 실제 마지막 패킷보다 이를 수 있으므로,
+   * 실제로 재생 중인 문서의 길이를 쓴다. 안 그러면 "1:10.7 / 1:08.9"처럼 넘어간다.
+   */
   get fileDuration(): number {
-    return this.currentSegment?.durationMs ?? 0;
+    return this.inner?.durationMs ?? this.currentSegment?.durationMs ?? 0;
   }
 
   get segmentCount(): number {
@@ -153,7 +158,7 @@ export class SequencePlayer {
   async seekInFile(relMs: number): Promise<void> {
     const seg = this.currentSegment;
     if (!seg) return;
-    await this.seek(seg.startMs + Math.max(0, Math.min(relMs, seg.durationMs)));
+    await this.seek(seg.startMs + Math.max(0, Math.min(relMs, this.fileDuration)));
   }
 
   /** 초 단위 건너뛰기. 파일 경계를 넘으면 앞/뒤 파일로 이어진다. */

@@ -353,3 +353,26 @@ test('구간 전환 중 이전 화면이 남지 않는다', async ({ page }) => 
   expect(cleared, '전환 직후 캔버스가 검게 지워져야 한다').toBeLessThan(12);
   await expect(page.locator('#file-note')).toContainText('구간 2/3', { timeout: 20_000 });
 });
+
+/** "0:01.4" → 1.4 */
+function parseClock(text: string): number {
+  const m = /(\d+):(\d+(?:\.\d+)?)/.exec(text.trim());
+  if (!m) return NaN;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+test('재생이 끝나도 시간이 길이를 넘지 않는다', async ({ page }) => {
+  test.skip(codec === null, '이 브라우저에서 쓸 수 있는 인코더가 없습니다');
+  await openMorningSession(page);
+  await page.locator('#btn-play').click();
+
+  // 마지막 구간까지 간 뒤 멈출 때까지 기다린다
+  await expect(page.locator('#file-note')).toContainText('구간 3/3', { timeout: 30_000 });
+  await expect(page.locator('#btn-play')).toHaveText('▶', { timeout: 30_000 });
+
+  const label = (await page.locator('#time-label').textContent()) ?? '';
+  const [pos, dur] = label.split('/').map(parseClock);
+  expect(Number.isFinite(pos) && Number.isFinite(dur)).toBe(true);
+  // 헤더 종료 시각이 실제보다 이르면 "1:10.7 / 1:08.9" 처럼 넘어가던 문제
+  expect(pos, `재생 위치(${pos})가 길이(${dur})를 넘으면 안 된다`).toBeLessThanOrEqual(dur + 0.15);
+});

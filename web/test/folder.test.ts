@@ -65,9 +65,10 @@ describe('세그먼트 프로브', () => {
     expect(seg.ch0Count).toBe(120);
     expect(seg.ch1Count).toBe(120);
     expect(seg.blockOffsets).toEqual([0]);
-    // 파일 전체(수백 KB)가 아니라 헤더 몇 개만 읽어야 한다
+    // 파일 전체(수백 KB)가 아니라 헤더 몇 조각만 읽어야 한다
+    // (JEB 헤더 + 첫 패킷 + 인덱스 마지막 항목 + 마지막 패킷)
     expect(readBytes).toBeLessThan(4096);
-    expect(reads).toBeLessThanOrEqual(3);
+    expect(reads).toBeLessThanOrEqual(6);
   });
 
   it('블록이 여러 개면 체인을 따라가 전부 센다', async () => {
@@ -78,6 +79,27 @@ describe('세그먼트 프로브', () => {
     expect(seg.ch0Count).toBe(120);
     expect(formatRecordedTime(seg.startMs, false)).toBe('2026-09-09 08:16:00');
     expect(seg.endMs).toBeGreaterThan(T(8, 16, 3));
+  });
+
+  it('헤더의 종료 시각이 실제 마지막 패킷보다 이르면 바로잡는다', async () => {
+    // 실기기에서 헤더 +0xA4가 실제보다 1.8초 이른 경우가 있었다.
+    // 그대로 두면 재생 길이 표시가 어긋나고 파일 사이에 없는 빈 구간이 생긴다.
+    const bytes = makeFile(T(8, 16, 0), 4);
+    const dv = new DataView(bytes.buffer);
+    // 블록 헤더의 종료 시각을 일부러 2초 이르게 바꾼다
+    const early = new Date(T(8, 16, 1));
+    dv.setUint16(0xa4, early.getUTCFullYear(), true);
+    dv.setUint16(0xa4 + 2, early.getUTCMonth() + 1, true);
+    dv.setUint16(0xa4 + 6, early.getUTCDate(), true);
+    dv.setUint16(0xa4 + 8, early.getUTCHours(), true);
+    dv.setUint16(0xa4 + 10, early.getUTCMinutes(), true);
+    dv.setUint16(0xa4 + 12, early.getUTCSeconds(), true);
+    dv.setUint16(0xa4 + 14, 0, true);
+
+    const seg = await probe(bytes, 'x.jdr');
+    // 헤더대로면 1초, 실제 패킷대로면 약 4초
+    expect(seg.durationMs).toBeGreaterThan(3500);
+    expect(seg.timeSource).toBe('packets');
   });
 
   it('JDR이 아니면 사유를 남긴다 (조용히 버리지 않는다)', async () => {

@@ -10,7 +10,8 @@
 import type { SegmentInfo, TimeSource } from './segment';
 
 const DB_NAME = 'jdr-viewer';
-const DB_VERSION = 1;
+/** 2: 종료 시각 계산이 바뀌어 예전 캐시는 버린다 */
+const DB_VERSION = 2;
 const STORE = 'probes';
 
 /** 캐시에 담는 값 — 경로/폴더처럼 열 때마다 달라지는 건 넣지 않는다 */
@@ -72,7 +73,9 @@ export class ProbeCache {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onupgradeneeded = () => {
           const db = req.result;
-          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' });
+          // 계산 방식이 바뀌면 예전 값을 그대로 쓸 수 없으므로 통째로 다시 만든다
+          if (db.objectStoreNames.contains(STORE)) db.deleteObjectStore(STORE);
+          db.createObjectStore(STORE, { keyPath: 'key' });
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);

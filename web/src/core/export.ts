@@ -94,23 +94,77 @@ export function buildSummaryJson(doc: JdrDocument): string {
   );
 }
 
+/**
+ * 패킷 조각을 큰 덩어리로 모아 Blob으로 넘기는 수집기.
+ *
+ * 프레임마다 Blob 조각을 만들면 3,500개가 넘고, Blob을 만들 때 그만큼 복사가 일어난다.
+ * 8MB씩 모아 넘기면 조각이 몇 개로 줄어 모바일에서 체감이 크게 달라진다.
+ */
+const EXPORT_CHUNK = 8 << 20;
+
+class BlobCollector {
+  private parts: BlobPart[] = [];
+  private buf = new Uint8Array(EXPORT_CHUNK);
+  private used = 0;
+
+  push(chunk: Uint8Array): void {
+    if (chunk.length > EXPORT_CHUNK) {
+      this.flush();
+      this.parts.push(new Blob([chunk as BlobPart]));
+      return;
+    }
+    if (this.used + chunk.length > EXPORT_CHUNK) this.flush();
+    this.buf.set(chunk, this.used);
+    this.used += chunk.length;
+  }
+
+  private flush(): void {
+    if (this.used === 0) return;
+    // Blob으로 넘기면 브라우저가 복사해 가므로 버퍼를 다시 쓸 수 있다
+    this.parts.push(new Blob([this.buf.subarray(0, this.used) as BlobPart]));
+    this.used = 0;
+  }
+
+  finish(head?: Uint8Array, type?: string): Blob {
+    this.flush();
+    return new Blob(head ? [head as BlobPart, ...this.parts] : this.parts, type ? { type } : undefined);
+  }
+}
+
+/** 오래 도는 작업 중 화면이 멈추지 않도록 양보한다 */
+const yieldToUi = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
 /** 채널별 H.264 Annex-B elementary stream을 그대로 이어붙인다. */
 export async function extractH264(
   src: ByteSource, doc: JdrDocument, channel: number,
   onProgress?: (done: number, total: number) => void,
 ): Promise<Blob> {
   const p = doc.packets;
-  const parts: BlobPart[] = [];
   const indices: number[] = [];
+  let totalBytes = 0;
   for (let i = 0; i < p.count; i++) {
-    if (tagKind(p.tag[i]) === TagKind.Video && tagChannel(p.tag[i]) === channel) indices.push(i);
+    if (tagKind(p.tag[i]) === TagKind.Video && tagChannel(p.tag[i]) === channel) {
+      indices.push(i);
+      totalBytes += p.size[i];
+    }
   }
+
+  const out = new BlobCollector();
+  let done = 0;
+  let lastYield = performance.now();
   for (let n = 0; n < indices.length; n++) {
     const i = indices[n];
-    parts.push(await src.read(p.offset[i] + PACKET_HEADER_SIZE, p.size[i]));
-    if ((n & 0xff) === 0) onProgress?.(n, indices.length);
+    out.push(await src.read(p.offset[i] + PACKET_HEADER_SIZE, p.size[i]));
+    done += p.size[i];
+    // 시간 기준으로 양보한다 — 프레임 수로 나누면 기기에 따라 너무 잦거나 뜸해진다
+    if (performance.now() - lastYield > 80) {
+      onProgress?.(done, totalBytes);
+      await yieldToUi();
+      lastYield = performance.now();
+    }
   }
-  return new Blob(parts, { type: 'video/h264' });
+  onProgress?.(totalBytes, totalBytes);
+  return out.finish(undefined, 'video/h264');
 }
 
 function wavHeader(dataBytes: number, sampleRate: number, channels = 1, bits = 16): Bytes {
@@ -135,14 +189,31 @@ function wavHeader(dataBytes: number, sampleRate: number, channels = 1, bits = 1
 }
 
 /** AD 패킷을 이어붙여 WAV(PCM s16le 8kHz mono)로 만든다. */
-export async function extractWav(src: ByteSource, doc: JdrDocument): Promise<Blob> {
+export async function extractWav(
+  src: ByteSource, doc: JdrDocument,
+  onProgress?: (done: number, total: number) => void,
+): Promise<Blob> {
   const p = doc.packets;
-  const parts: BlobPart[] = [];
-  let total = 0;
+  const indices: number[] = [];
+  let totalBytes = 0;
   for (let i = 0; i < p.count; i++) {
     if (tagKind(p.tag[i]) !== TagKind.Audio) continue;
-    parts.push(await src.read(p.offset[i] + PACKET_HEADER_SIZE, p.size[i]));
-    total += p.size[i];
+    indices.push(i);
+    totalBytes += p.size[i];
   }
-  return new Blob([wavHeader(total, AUDIO_SAMPLE_RATE), ...parts], { type: 'audio/wav' });
+
+  const out = new BlobCollector();
+  let done = 0;
+  let lastYield = performance.now();
+  for (const i of indices) {
+    out.push(await src.read(p.offset[i] + PACKET_HEADER_SIZE, p.size[i]));
+    done += p.size[i];
+    if (performance.now() - lastYield > 80) {
+      onProgress?.(done, totalBytes);
+      await yieldToUi();
+      lastYield = performance.now();
+    }
+  }
+  onProgress?.(totalBytes, totalBytes);
+  return out.finish(wavHeader(totalBytes, AUDIO_SAMPLE_RATE), 'audio/wav');
 }

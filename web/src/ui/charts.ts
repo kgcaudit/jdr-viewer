@@ -15,6 +15,13 @@ export interface ChartData {
 
 const COLORS = { speed: '#2b6cb0', x: '#c2410c', y: '#15803d', z: '#6d28d9', cursor: '#e53e3e' };
 
+/**
+ * 범례 값의 자릿수를 고정한다.
+ * 그냥 두면 0.008 → 0 → 1 처럼 길이가 바뀌면서 항목이 좌우로 흔들린다.
+ */
+const fixed = (digits: number) => (_u: uPlot, v: number | null | undefined): string =>
+  v == null || Number.isNaN(v) ? '—'.padStart(digits + 2) : v.toFixed(digits);
+
 function axisStyle(): uPlot.Axis {
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   const stroke = dark ? '#9aa2b1' : '#626977';
@@ -70,8 +77,8 @@ export class TimeCharts {
           scales: { x: { time: false } },
           axes: [{ ...axisStyle(), label: '초' }, axisStyle()],
           series: [
-            { label: '초' },
-            { label: 'km/h', stroke: COLORS.speed, width: 2, fill: 'rgba(43,108,176,.12)' },
+            { label: '초', value: fixed(1) },
+            { label: 'km/h', stroke: COLORS.speed, width: 2, fill: 'rgba(43,108,176,.12)', value: fixed(1) },
           ],
         },
         [xs, ys],
@@ -104,10 +111,10 @@ export class TimeCharts {
           scales: { x: { time: false } },
           axes: [{ ...axisStyle(), label: '초' }, axisStyle()],
           series: [
-            { label: '초' },
-            { label: 'X', stroke: COLORS.x, width: 1.5 },
-            { label: 'Y', stroke: COLORS.y, width: 1.5 },
-            { label: 'Z', stroke: COLORS.z, width: 1.5 },
+            { label: '초', value: fixed(1) },
+            { label: 'X', stroke: COLORS.x, width: 1.5, value: fixed(3) },
+            { label: 'Y', stroke: COLORS.y, width: 1.5, value: fixed(3) },
+            { label: 'Z', stroke: COLORS.z, width: 1.5, value: fixed(3) },
           ],
         },
         [xs, gx, gy, gz],
