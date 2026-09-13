@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "leaflet": "^1.9.4",
+    "mediabunny": "^1.56.2",
     "uplot": "^1.6.32"
   },
   "devDependencies": {

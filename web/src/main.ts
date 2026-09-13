@@ -29,7 +29,10 @@ import { hashSource } from './core/sha256';
 import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
 import { renderRangeExport } from './ui/range-export';
-import { buildRange, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange } from './core/range-export';
+import {
+  buildRange, isVideoKind, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange,
+} from './core/range-export';
+import { buildCompositeMp4, buildRangeMp4 } from './core/mp4';
 import {
   highlightSegmentRow, markActiveSegment, markLoadingSegment, renderSegments, renderStrip,
   updateStripCursor, type FolderStat,
@@ -927,11 +930,17 @@ async function runRangeExport(kind: RangeKind): Promise<void> {
   rangeNote = '';
   drawRangeExport();
   try {
-    const result = await buildRange(kind, s.lib.segments, s.loader, range, (p) => {
+    const report = (p: { ratio: number; name: string; index: number; total: number }) => {
       rangeProgress = p.ratio * 100;
-      rangeNote = `${p.name} (${p.index}/${p.total})`;
+      rangeNote = p.name ? `${p.name} (${p.index}/${p.total})` : '';
       drawRangeExport();
-    });
+    };
+    // 영상은 MP4로 만든다 — 아무 데서나 열려야 쓸모가 있다
+    const result = kind === 'both'
+      ? await buildCompositeMp4(s.lib.segments, s.loader, range, codecOverride, report)
+      : isVideoKind(kind)
+        ? await buildRangeMp4(kind === 'front' ? 0 : 1, s.lib.segments, s.loader, range, report)
+        : await buildRange(kind, s.lib.segments, s.loader, range, report);
 
     const name = rangeFileName(range, kind);
     const url = URL.createObjectURL(result.blob);
@@ -945,9 +954,12 @@ async function runRangeExport(kind: RangeKind): Promise<void> {
 
     // 키프레임 때문에 실제 시작이 이를 수 있다 — 숨기지 않고 알린다
     const lead = Math.round((range.fromMs - result.actualFromMs) / 100) / 10;
-    toast(lead >= 0.1
-      ? `${name} 저장 · ${bytes(result.blob.size)} (키프레임 때문에 ${lead}초 일찍 시작)`
-      : `${name} 저장 · ${bytes(result.blob.size)}`);
+    const notes: string[] = [];
+    if (lead >= 0.1) notes.push(`키프레임 때문에 ${lead}초 일찍 시작`);
+    if (isVideoKind(kind) && 'hasAudio' in result && !result.hasAudio) {
+      notes.push('이 브라우저에 소리 인코더가 없어 영상만 담았습니다');
+    }
+    toast(`${name} 저장 · ${bytes(result.blob.size)}${notes.length ? ` (${notes.join(' · ')})` : ''}`);
   } catch (e) {
     toast(`${RANGE_LABEL[kind]} 내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
   } finally {

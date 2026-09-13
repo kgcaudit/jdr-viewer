@@ -35,7 +35,7 @@ export interface RangeExportState {
   progressNote: string;
 }
 
-const KINDS: RangeKind[] = ['front', 'rear', 'audio', 'gps', 'sensor'];
+const KINDS: RangeKind[] = ['front', 'rear', 'both', 'audio', 'gps', 'sensor'];
 
 function hhmmss(ms: number): string {
   return formatRecordedTime(ms, false).slice(11, 19);
@@ -54,7 +54,9 @@ export function renderRangeExport(
   const rows = KINDS.map((kind) => {
     const size = estimateRangeBytes(state.segments, range, kind);
     const busy = state.busy === kind;
-    const label = kind === 'gps' || kind === 'sensor' ? `${num(estimateRows(state.segments, range, kind))}행 남짓` : `대략 ${bytes(size)}`;
+    const label = kind === 'gps' || kind === 'sensor'
+      ? `${num(estimateRows(state.segments, range, kind))}행 남짓`
+      : `대략 ${bytes(size)}${kind === 'both' ? ' · 다시 압축하므로 느립니다' : ''}`;
     return `<div class="export-item">
       <div>
         <strong>${RANGE_LABEL[kind]}</strong>
@@ -102,9 +104,14 @@ export function renderRangeExport(
     <p class="section-title">구간 내보내기</p>
     <div class="export-list">${rows}</div>
     <div class="note">
-      영상은 <strong>다시 인코딩하지 않습니다.</strong> 그래서 시작 지점 직전 키프레임까지
-      거슬러 올라가며, 파일이 요청한 시각보다 <strong>몇 초 이르게 시작할 수 있습니다.</strong>
-      실제 시작 시각은 저장할 때 알려 드립니다.
+      내보낸 파일은 <strong>원본이 아니라 분석용 파생물</strong>입니다. 원본 JDR은 그대로 있습니다.
+      <br><strong>전방·후방 MP4는 다시 인코딩하지 않습니다</strong> — 그릇만 바꾸므로 화질이 원본
+      그대로이고 빠릅니다. 다만 시작 지점 직전 키프레임까지 거슬러 올라가
+      <strong>요청한 시각보다 몇 초 이르게 시작할 수 있습니다</strong> (저장할 때 알려 드립니다).
+      <br><strong>한 화면 합성은 다시 압축합니다</strong> — 보고서에 붙이기 좋지만 폰에서는
+      몇 분이 걸리고 발열이 있습니다.
+      <br>MP4의 소리는 어디서나 열리도록 AAC로 바꿉니다. <strong>손대지 않은 8kHz 원본</strong>이
+      필요하면 음성(WAV)을 받으세요.
       <br>파일명은 <code>YYMMDD_HHMMSS-HHMMSS_종류</code>입니다. CSV에는 각 줄이 어느 원본
       파일에서 왔는지가 함께 들어갑니다.
     </div>`;

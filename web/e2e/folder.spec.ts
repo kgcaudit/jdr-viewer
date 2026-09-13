@@ -695,18 +695,19 @@ test('시간 구간을 지정해 여러 파일을 하나로 내보낸다', async
 
   // 파일명이 사람이 읽을 수 있는 시각 규칙이다
   const names = await panel.locator('.export-item span').first().textContent();
-  expect(names).toMatch(/^\d{6}_\d{6}-\d{6}_Front\.h264$/);
+  expect(names).toMatch(/^\d{6}_\d{6}-\d{6}_Front\.mp4$/);
 
+  // 영상은 코덱을 타므로(이 컨테이너 픽스처는 VP8) 음성으로 이어붙이기를 확인한다
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    panel.locator('[data-range="front"]').click(),
+    panel.locator('[data-range="audio"]').click(),
   ]);
-  expect(download.suggestedFilename()).toMatch(/^\d{6}_\d{6}-\d{6}_Front\.h264$/);
+  expect(download.suggestedFilename()).toMatch(/^\d{6}_\d{6}-\d{6}_Audio\.wav$/);
 
   const saved = join(testInfo.outputDir, download.suggestedFilename());
   await download.saveAs(saved);
   const { statSync } = await import('node:fs');
-  // 파일 3개를 이어 붙였으니 하나짜리보다 커야 한다
+  // 파일 3개 분량이 한 파일에 담겼다
   expect(statSync(saved).size).toBeGreaterThan(10_000);
 });
 
@@ -719,7 +720,7 @@ test('구간을 좁히면 결과도 작아진다', async ({ page }, testInfo) =>
   const grab = async (): Promise<number> => {
     const [d] = await Promise.all([
       page.waitForEvent('download'),
-      panel.locator('[data-range="front"]').click(),
+      panel.locator('[data-range="audio"]').click(),
     ]);
     const at = join(testInfo.outputDir, `${Date.now()}_${d.suggestedFilename()}`);
     await d.saveAs(at);
@@ -746,6 +747,7 @@ test('끝이 시작보다 빠르면 내보내기를 막는다', async ({ page })
 
   await expect(panel.locator('.rng-sum')).toContainText('끝이 시작보다 빠릅니다');
   await expect(panel.locator('[data-range="front"]')).toBeDisabled();
+  await expect(panel.locator('[data-range="both"]')).toBeDisabled();
 });
 
 test('내보내기는 구간 단위 하나뿐이다', async ({ page }) => {

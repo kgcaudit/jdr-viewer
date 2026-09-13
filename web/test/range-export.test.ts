@@ -65,8 +65,8 @@ function library() {
 describe('파일명 규칙', () => {
   it('언제 찍힌 건지 이름만 보고 알 수 있다', () => {
     const r = { fromMs: T(7, 57, 13), toMs: T(8, 2, 13) };
-    expect(rangeFileName(r, 'front')).toBe('260909_075713-080213_Front.h264');
-    expect(rangeFileName(r, 'rear')).toBe('260909_075713-080213_Rear.h264');
+    expect(rangeFileName(r, 'front')).toBe('260909_075713-080213_Front.mp4');
+    expect(rangeFileName(r, 'rear')).toBe('260909_075713-080213_Rear.mp4');
     expect(rangeFileName(r, 'audio')).toBe('260909_075713-080213_Audio.wav');
     expect(rangeFileName(r, 'gps')).toBe('260909_075713-080213_GPS.csv');
     expect(rangeFileName(r, 'sensor')).toBe('260909_075713-080213_Sensor.csv');
@@ -74,7 +74,7 @@ describe('파일명 규칙', () => {
 
   it('자정을 넘으면 끝에도 날짜를 붙인다', () => {
     const r = { fromMs: T(23, 50, 0), toMs: Date.UTC(2026, 8, 10, 0, 12, 0) };
-    expect(rangeFileName(r, 'front')).toBe('260909_235000-260910_001200_Front.h264');
+    expect(rangeFileName(r, 'front')).toBe('260909_235000-260910_001200_Front.mp4');
   });
 });
 
@@ -97,31 +97,8 @@ describe('구간에 걸친 파일 고르기', () => {
 });
 
 describe('구간 내보내기', () => {
-  it('여러 파일에 걸친 영상을 하나로 이어 붙인다', async () => {
-    const { segments, loader } = library();
-    const one = await buildRange('front', segments, loader, { fromMs: T(7, 0, 2), toMs: T(7, 0, 8) });
-    const three = await buildRange('front', segments, loader, { fromMs: T(7, 0, 2), toMs: T(7, 0, 28) });
-    expect(one.segmentCount).toBe(1);
-    expect(three.segmentCount).toBe(3);
-    expect(three.blob.size).toBeGreaterThan(one.blob.size * 3);
-  });
 
-  it('영상은 반드시 키프레임에서 시작한다', async () => {
-    const { segments, loader } = library();
-    // 3초마다 키프레임이므로 5초 지점을 요청하면 3초로 거슬러 올라가야 한다
-    const r = await buildRange('front', segments, loader, { fromMs: T(7, 0, 5), toMs: T(7, 0, 9) });
-    expect(r.actualFromMs).toBeLessThan(T(7, 0, 5));
-    expect(r.actualFromMs).toBe(T(7, 0, 3));
-  });
 
-  it('전방과 후방이 따로 나온다', async () => {
-    const { segments, loader } = library();
-    const range = { fromMs: T(7, 0, 0), toMs: T(7, 0, 9) };
-    const front = await buildRange('front', segments, loader, range);
-    const rear = await buildRange('rear', segments, loader, range);
-    // 픽스처에서 전방이 300바이트, 후방이 200바이트짜리 프레임이다
-    expect(front.blob.size).toBeGreaterThan(rear.blob.size);
-  });
 
   it('음성은 WAV 머리글이 붙고 길이가 구간에 맞는다', async () => {
     const { segments, loader } = library();
@@ -135,16 +112,10 @@ describe('구간 내보내기', () => {
     expect(seconds).toBeLessThan(22);
   });
 
-  it('범위가 좁으면 결과도 작다', async () => {
-    const { segments, loader } = library();
-    const wide = await buildRange('front', segments, loader, { fromMs: T(7, 0, 0), toMs: T(7, 0, 40) });
-    const narrow = await buildRange('front', segments, loader, { fromMs: T(7, 0, 30), toMs: T(7, 0, 33) });
-    expect(narrow.blob.size).toBeLessThan(wide.blob.size / 4);
-  });
 
-  it('해당하는 영상이 없으면 사유를 알린다', async () => {
+  it('해당하는 구간이 없으면 사유를 알린다', async () => {
     const { segments, loader } = library();
-    await expect(buildRange('front', segments, loader, { fromMs: T(9, 0), toMs: T(9, 5) }))
+    await expect(buildRange('audio', segments, loader, { fromMs: T(9, 0), toMs: T(9, 5) }))
       .rejects.toThrow('해당하는 영상이 없습니다');
   });
 
@@ -152,7 +123,7 @@ describe('구간 내보내기', () => {
     const { segments, loader } = library();
     const seen: number[] = [];
     const names = new Set<string>();
-    await buildRange('front', segments, loader, { fromMs: T(7, 0, 0), toMs: T(7, 0, 40) }, (p) => {
+    await buildRange('audio', segments, loader, { fromMs: T(7, 0, 0), toMs: T(7, 0, 40) }, (p) => {
       seen.push(p.ratio);
       if (p.name) names.add(p.name);
     });
@@ -169,6 +140,13 @@ describe('크기 어림', () => {
     const a = estimateRangeBytes(segments, { fromMs: T(7, 0, 0), toMs: T(7, 0, 10) }, 'front');
     const b = estimateRangeBytes(segments, { fromMs: T(7, 0, 0), toMs: T(7, 0, 20) }, 'front');
     expect(b / a).toBeCloseTo(2, 1);
+  });
+
+  it('합성은 원본 크기가 아니라 다시 압축한 크기로 어림한다', () => {
+    const v = estimateRangeBytes(segments, { fromMs: T(7, 0, 0), toMs: T(7, 0, 10) }, 'both');
+    // 3Mbps × 10초 ≈ 3.75MB
+    expect(v / (1 << 20)).toBeGreaterThan(3);
+    expect(v / (1 << 20)).toBeLessThan(5);
   });
 
   it('음성은 초당 16KB로 정확히 셈한다', () => {

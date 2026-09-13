@@ -312,10 +312,10 @@ function clamp01(v: number): number {
 }
 
 /** s16le 바이트를 -1~1 실수로 편다 */
-export function pcmFromBytes(bytes: Uint8Array): Float32Array {
+export function pcmFromBytes(bytes: Uint8Array): Float32Array<ArrayBuffer> {
   const n = Math.floor(bytes.byteLength / 2);
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const out = new Float32Array(n);
+  const out = new Float32Array(new ArrayBuffer(n * 4));
   for (let i = 0; i < n; i++) out[i] = dv.getInt16(i * 2, true) / 32768;
   return out;
 }

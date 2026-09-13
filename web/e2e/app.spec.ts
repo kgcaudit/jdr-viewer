@@ -334,3 +334,66 @@ test('열람 중에는 화면을 깨워 둔다', async ({ page }) => {
   await expect(chip).toHaveClass(/is-on/);
   expect((await stats()).requests).toBeGreaterThan(1);
 });
+
+test('전방 영상을 MP4로 내보낸다 (재인코딩 없이)', async ({ page }) => {
+  await loadSample(page);
+  await page.locator('.tab[data-tab="export"]').click();
+
+  if (!isH264()) {
+    // 이 컨테이너 크롬에는 독점 코덱이 없어 픽스처가 VP8이다.
+    // 그릇만 바꾸는 리먹스는 H.264일 때만 되므로, 사유가 분명히 보여야 한다.
+    await page.locator('[data-range="front"]').click();
+    await expect(page.locator('#toast')).toContainText('H.264가 아니라', { timeout: 30_000 });
+    return;
+  }
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60_000 }),
+    page.locator('[data-range="front"]').click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^\d{6}_\d{6}-\d{6}_Front\.mp4$/);
+
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const c of stream) chunks.push(c as Buffer);
+  const mp4 = Buffer.concat(chunks);
+
+  // MP4인가 — ftyp 상자로 시작한다
+  expect(mp4.subarray(4, 8).toString('ascii')).toBe('ftyp');
+  // 그릇만 바꾼 것이라 원본 영상 크기와 비슷해야 한다 (재인코딩이면 훨씬 작아진다)
+  expect(mp4.length).toBeGreaterThan(50_000);
+
+  // 정말 열리는가 — 브라우저에 다시 물려 본다
+  const info = await page.evaluate(async (bytes) => {
+    const el = document.createElement('video');
+    el.muted = true;
+    el.src = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'video/mp4' }));
+    await new Promise((resolve, reject) => {
+      el.onloadedmetadata = resolve;
+      el.onerror = () => reject(new Error('metadata 실패'));
+      setTimeout(() => reject(new Error('metadata 시간초과')), 10_000);
+    });
+    return { w: el.videoWidth, h: el.videoHeight, dur: el.duration };
+  }, [...mp4]);
+  expect(info.w).toBeGreaterThan(0);
+  expect(info.dur).toBeGreaterThan(0.5);
+});
+
+test('전방+후방 한 화면 합성도 MP4로 나온다', async ({ page }) => {
+  test.setTimeout(120_000);
+  await loadSample(page);
+  await page.locator('.tab[data-tab="export"]').click();
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 100_000 }),
+    page.locator('[data-range="both"]').click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/_Both\.mp4$/);
+
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const c of stream) chunks.push(c as Buffer);
+  const mp4 = Buffer.concat(chunks);
+  expect(mp4.subarray(4, 8).toString('ascii')).toBe('ftyp');
+  expect(mp4.length).toBeGreaterThan(1_000);
+});
