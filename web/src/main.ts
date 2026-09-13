@@ -1,7 +1,10 @@
 /** 화면 배선. 무거운 일은 worker와 player가 한다. */
 import './styles.css';
 import { BlobByteSource } from './core/byte-source';
+import { buildCalendar, type CalendarIndex } from './core/calendar';
 import { buildLibrary, type Library } from './core/library';
+import type { StripLayout } from './core/strip-layout';
+import { cacheKeyOf, fromCacheValue, ProbeCache, toCacheValue } from './core/probe-cache';
 import { probeSegment, type SegmentInfo } from './core/segment';
 import { formatDuration, formatRecordedTime } from './core/time';
 import type { JdrDocument, ParseProgress } from './core/types';
@@ -11,6 +14,7 @@ import { FileSegmentLoader } from './player/loader';
 import { SequencePlayer } from './player/sequence';
 import { hasWebCodecs } from './player/index';
 import type { PlayerStatus } from './player/player';
+import { renderCalendar } from './ui/calendar';
 import { renderSummary } from './ui/summary';
 import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
@@ -27,31 +31,45 @@ const views = {
   empty: $('view-empty'),
   loading: $('view-loading'),
   error: $('view-error'),
+  calendar: $('view-calendar'),
   main: $('view-main'),
 };
 
-const CONTROL_IDS = ['btn-play', 'btn-prev', 'btn-next', 'seek', 'speed', 'btn-mute'];
+const CONTROL_IDS = ['btn-play', 'btn-prev-file', 'btn-next-file', 'btn-back10', 'btn-fwd10', 'seek', 'speed', 'btn-mute'];
+const SKIP_MS = 10_000;
 
-interface Session {
-  merged: boolean;
+/** 폴더 전체에 대한 상태 — 날짜를 바꿔도 유지된다 */
+interface FolderState {
   allSegments: SegmentInfo[];
   folders: FolderStat[];
-  lib: Library;
+  calendar: CalendarIndex;
+  monthIndex: number;
+  selectedDay: string;
   files: Map<string, File>;
+}
+
+/** 지금 열려 있는 날짜(또는 단일 파일)의 재생 세션 */
+interface PlaySession {
+  merged: boolean;
+  lib: Library;
   loader: FileSegmentLoader;
   player: SequencePlayer;
   records: MergedRecords;
   scan: RecordScanJob | null;
+  label: string;
 }
 
-let session: Session | null = null;
+let folderState: FolderState | null = null;
+let session: PlaySession | null = null;
 let parseJob: JdrParseJob | null = null;
 let map: GpsMap | null = null;
 let charts: TimeCharts | null = null;
 let seekDragging = false;
 let muted = false;
+let stripLayout: StripLayout | null = null;
 
-/** ?codec= 로 들어온 값이 코덱 문자열 모양이 아니면 무시한다 */
+const probeCache = new ProbeCache();
+
 function readCodecOverride(): string | undefined {
   const raw = new URLSearchParams(location.search).get('codec')?.trim();
   if (!raw || raw === 'undefined' || raw === 'null') return undefined;
@@ -61,6 +79,7 @@ const codecOverride = readCodecOverride();
 
 function showView(name: keyof typeof views): void {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
+  $('btn-back-calendar').hidden = !(name === 'main' && folderState !== null);
 }
 
 function setControlsEnabled(enabled: boolean): void {
@@ -92,6 +111,11 @@ $('btn-open-2').addEventListener('click', () => fileInput.click());
 $('btn-retry').addEventListener('click', () => fileInput.click());
 $('btn-open-folder').addEventListener('click', () => folderInput.click());
 $('btn-open-folder-2').addEventListener('click', () => folderInput.click());
+$('btn-back-calendar').addEventListener('click', () => {
+  if (!folderState) return;
+  session?.player.pause();
+  showView('calendar');
+});
 
 fileInput.addEventListener('change', () => {
   const f = fileInput.files?.[0];
@@ -111,14 +135,10 @@ for (const type of ['dragenter', 'dragover']) {
 for (const type of ['dragleave', 'drop']) {
   dropzone.addEventListener(type, () => dropzone.classList.remove('is-over'));
 }
-dropzone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  void handleDrop(e as DragEvent);
-});
+dropzone.addEventListener('drop', (e) => { e.preventDefault(); void handleDrop(e as DragEvent); });
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => e.preventDefault());
 
-/** 폴더를 끌어다 놓으면 하위까지 훑는다 */
 async function handleDrop(e: DragEvent): Promise<void> {
   const dt = e.dataTransfer;
   if (!dt) return;
@@ -142,7 +162,6 @@ async function collectEntry(entry: FileSystemEntry, out: File[]): Promise<void> 
       (entry as FileSystemFileEntry).file((f) => resolve(f), () => resolve(null)),
     );
     if (file) {
-      // 드롭으로 들어온 파일에는 webkitRelativePath가 없으므로 직접 심어 준다
       Object.defineProperty(file, 'webkitRelativePath', { value: entry.fullPath.replace(/^\//, '') });
       out.push(file);
     }
@@ -166,8 +185,20 @@ const PHASE_LABEL: Record<string, string> = {
   analyze: '분석 중…',
 };
 
+function setBar(pct: number): void {
+  ($('loading-bar') as HTMLElement).style.width = `${Math.max(0, Math.min(100, pct)).toFixed(1)}%`;
+}
+
+function showParseProgress(p: ParseProgress): void {
+  $('loading-phase').textContent = PHASE_LABEL[p.phase] ?? '처리 중…';
+  if (p.phase === 'analyze') { setBar(100); return; }
+  const pct = p.total > 0 ? (p.done / p.total) * 100 : 0;
+  setBar(p.phase === 'scan' ? pct * 0.6 : 60 + pct * 0.4);
+}
+
 async function openSingleFile(file: File): Promise<void> {
   await teardown();
+  folderState = null;
   showView('loading');
   $('loading-detail').textContent = `${file.name} · ${bytes(file.size)}`;
   $('loading-phase').textContent = '파일을 읽는 중…';
@@ -182,7 +213,6 @@ async function openSingleFile(file: File): Promise<void> {
     const seg = await probeSegment({
       src: new BlobByteSource(file, file.name), name: file.name, path: file.name, size: file.size,
     });
-    // 프로브가 실패해도 파싱은 됐으므로 파싱 결과로 시간 범위를 채운다
     if (seg.error || !Number.isFinite(seg.startMs)) {
       seg.error = undefined;
       seg.startMs = doc.firstTimeMs;
@@ -190,24 +220,21 @@ async function openSingleFile(file: File): Promise<void> {
       seg.durationMs = doc.durationSec * 1000;
       seg.timeSource = 'packets';
     }
-    await startSession([seg], new Map([[seg.id, file]]), false, doc);
+    await startPlaySession([seg], new Map([[seg.id, file]]), false, file.name, doc);
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));
   }
 }
 
-function setBar(pct: number): void {
-  ($('loading-bar') as HTMLElement).style.width = `${Math.max(0, Math.min(100, pct)).toFixed(1)}%`;
+// ── 폴더: 헤더만 훑어 날짜 인덱스를 만든다 ──────────
+function commonRootPrefix(paths: string[]): string {
+  if (paths.length === 0) return '';
+  const slash = paths[0].indexOf('/');
+  if (slash < 0) return '';
+  const root = paths[0].slice(0, slash + 1);
+  return paths.every((p) => p.startsWith(root)) ? root : '';
 }
 
-function showParseProgress(p: ParseProgress): void {
-  $('loading-phase').textContent = PHASE_LABEL[p.phase] ?? '처리 중…';
-  if (p.phase === 'analyze') { setBar(100); return; }
-  const pct = p.total > 0 ? (p.done / p.total) * 100 : 0;
-  setBar(p.phase === 'scan' ? pct * 0.6 : 60 + pct * 0.4);
-}
-
-// ── 폴더 ────────────────────────────────────────────
 async function openFolder(all: File[]): Promise<void> {
   const jdrFiles = all.filter((f) => f.name.toLowerCase().endsWith('.jdr'));
   if (jdrFiles.length === 0) {
@@ -220,70 +247,135 @@ async function openFolder(all: File[]): Promise<void> {
   $('loading-detail').textContent = `${num(jdrFiles.length)}개 파일`;
   setBar(0);
 
-  // webkitRelativePath에는 고른 폴더 이름이 앞에 붙는다. 떼어내야 data/ event/ 로 보인다.
   const rawPaths = jdrFiles.map((f) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name);
   const root = commonRootPrefix(rawPaths);
 
-  // 헤더 512바이트만 읽으므로 파일당 1ms 수준이다
+  // 같은 폴더를 다시 열면 헤더를 다시 읽지 않는다
+  const keys = jdrFiles.map(cacheKeyOf);
+  const cached = await probeCache.getMany(keys);
+  let fromCache = 0;
+
   const segments: SegmentInfo[] = [];
   const files = new Map<string, File>();
+  const toStore: ReturnType<typeof toCacheValue>[] = [];
+
   for (let i = 0; i < jdrFiles.length; i++) {
     const f = jdrFiles[i];
     const path = rawPaths[i].startsWith(root) ? rawPaths[i].slice(root.length) : rawPaths[i];
-    const seg = await probeSegment({
-      src: new BlobByteSource(f, f.name), name: f.name, path, size: f.size,
-    });
+    const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    const hit = cached.get(keys[i]);
+
+    let seg: SegmentInfo;
+    if (hit) {
+      seg = fromCacheValue(hit, { name: f.name, path, folder, size: f.size });
+      fromCache++;
+    } else {
+      // 헤더 512바이트만 읽는다 (파일 전체를 읽지 않는다)
+      seg = await probeSegment({ src: new BlobByteSource(f, f.name), name: f.name, path, size: f.size });
+      toStore.push(toCacheValue(keys[i], seg));
+    }
     segments.push(seg);
     files.set(seg.id, f);
-    if ((i & 15) === 0) {
+
+    if ((i & 31) === 0) {
       setBar((i / jdrFiles.length) * 100);
-      $('loading-detail').textContent = `${num(i + 1)} / ${num(jdrFiles.length)}개 훑는 중`;
-      await new Promise((r) => setTimeout(r, 0)); // UI가 그려질 틈을 준다
+      $('loading-detail').textContent =
+        `${num(i + 1)} / ${num(jdrFiles.length)}개 훑는 중${fromCache > 0 ? ` · 캐시 ${num(fromCache)}개` : ''}`;
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
   setBar(100);
+  void probeCache.putMany(toStore);
 
   if (segments.every((s) => s.error)) {
     showError(`${num(segments.length)}개 파일을 모두 읽지 못했습니다. 지원하지 않는 JDR 변형일 수 있습니다.`);
     return;
   }
-  await startSession(segments, files, true, null);
+
+  const folders = buildFolderStats(segments);
+  folderState = {
+    allSegments: segments, folders,
+    calendar: buildCalendar(selectedSegments(segments, folders)),
+    monthIndex: 0, selectedDay: '', files,
+  };
+  // 가장 최근 달부터 보여준다
+  folderState.monthIndex = Math.max(0, folderState.calendar.months.length - 1);
+  if (fromCache > 0) toast(`${num(fromCache)}개는 캐시에서 읽었습니다`);
+  drawCalendar();
+  showView('calendar');
 }
 
-/** 모든 경로가 같은 최상위 폴더에 있으면 그 이름을 떼어낸다 */
-function commonRootPrefix(paths: string[]): string {
-  if (paths.length === 0) return '';
-  const first = paths[0];
-  const slash = first.indexOf('/');
-  if (slash < 0) return '';
-  const root = first.slice(0, slash + 1);
-  return paths.every((p) => p.startsWith(root)) ? root : '';
-}
-
-/** 폴더별 통계. 기본 선택은 "가장 길게 찍힌 폴더" 하나 — 겹치는 event까지 넣으면 구간이 중복된다. */
 function buildFolderStats(segments: SegmentInfo[]): FolderStat[] {
   const map = new Map<string, FolderStat>();
   for (const s of segments) {
     if (s.error) continue;
-    const key = s.folder;
-    const cur = map.get(key) ?? { folder: key, count: 0, bytes: 0, durationMs: 0, selected: false };
+    const cur = map.get(s.folder) ?? { folder: s.folder, count: 0, bytes: 0, durationMs: 0, selected: false };
     cur.count++;
     cur.bytes += s.size;
     cur.durationMs += s.durationMs;
-    map.set(key, cur);
+    map.set(s.folder, cur);
   }
   const list = [...map.values()].sort((a, b) => b.durationMs - a.durationMs);
   if (list.length > 0) list[0].selected = true;
-  if (list.length === 1) list[0].selected = true;
   return list;
 }
 
 function selectedSegments(segments: SegmentInfo[], folders: FolderStat[]): SegmentInfo[] {
   const on = new Set(folders.filter((f) => f.selected).map((f) => f.folder));
-  return segments.filter((s) => s.error || on.has(s.folder));
+  return segments.filter((s) => !s.error && on.has(s.folder));
 }
 
-// ── 세션 ────────────────────────────────────────────
+function drawCalendar(): void {
+  const fs = folderState;
+  if (!fs) return;
+  renderCalendar($('calendar'), fs.calendar, fs.monthIndex, fs.selectedDay, fs.folders, {
+    onPickDay: (key) => {
+      fs.selectedDay = key;
+      drawCalendar();
+    },
+    onPickSession: (key, sessionIndex) => void openDay(key, sessionIndex),
+    onMonthChange: (index) => {
+      fs.monthIndex = Math.max(0, Math.min(index, fs.calendar.months.length - 1));
+      drawCalendar();
+    },
+    onToggleFolder: (folder, selected) => {
+      const f = fs.folders.find((x) => x.folder === folder);
+      if (!f) return;
+      f.selected = selected;
+      if (fs.folders.every((x) => !x.selected)) {
+        f.selected = true;
+        toast('폴더를 최소 하나는 선택해야 합니다');
+      }
+      fs.calendar = buildCalendar(selectedSegments(fs.allSegments, fs.folders));
+      fs.monthIndex = Math.max(0, Math.min(fs.monthIndex, fs.calendar.months.length - 1));
+      fs.selectedDay = fs.calendar.byKey.has(fs.selectedDay) ? fs.selectedDay : '';
+      drawCalendar();
+    },
+  });
+}
+
+/** 날짜(또는 그 안의 운행 하나)만 불러온다 */
+async function openDay(dayKey: string, sessionIndex: number): Promise<void> {
+  const fs = folderState;
+  if (!fs) return;
+  const day = fs.calendar.byKey.get(dayKey);
+  if (!day) return;
+  const segs = sessionIndex >= 0 && day.sessions[sessionIndex]
+    ? day.sessions[sessionIndex].segments
+    : day.segments;
+  const label = sessionIndex >= 0
+    ? `${dayKey} · ${formatRecordedTime(segs[0].startMs, false).slice(11, 16)} 운행`
+    : dayKey;
+
+  await teardown();
+  showView('loading');
+  $('loading-phase').textContent = `${label} 여는 중…`;
+  $('loading-detail').textContent = `${num(segs.length)}개 구간`;
+  setBar(30);
+  await startPlaySession(segs, fs.files, true, label, null);
+}
+
+// ── 재생 세션 ───────────────────────────────────────
 async function teardown(): Promise<void> {
   session?.scan?.stop();
   session?.player.close();
@@ -294,33 +386,29 @@ async function teardown(): Promise<void> {
   setControlsEnabled(false);
 }
 
-async function startSession(
+async function startPlaySession(
   segments: SegmentInfo[],
   files: Map<string, File>,
   merged: boolean,
+  label: string,
   preparsed: JdrDocument | null,
 ): Promise<void> {
-  const folders = merged ? buildFolderStats(segments) : [];
-  const lib = buildLibrary(merged ? selectedSegments(segments, folders) : segments);
+  const lib = buildLibrary(segments);
   if (lib.segments.length === 0) {
     showError('재생할 수 있는 구간이 없습니다.');
     return;
   }
-
   const loader = new FileSegmentLoader(files, merged ? 3 : 1, !merged);
   const player = new SequencePlayer(
     lib, loader,
     [$<HTMLCanvasElement>('canvas-0'), $<HTMLCanvasElement>('canvas-1')],
     toast, codecOverride,
   );
-  const records = new MergedRecords();
-  session = { merged, allSegments: segments, folders, lib, files, loader, player, records, scan: null };
+  session = { merged, lib, loader, player, records: new MergedRecords(), scan: null, label };
 
-  // 단일 파일은 이미 파싱해 두었으므로 다시 읽지 않는다
   if (preparsed && lib.segments.length === 1) {
     loader.prime(lib.segments[0].id, preparsed, new BlobByteSource(files.get(lib.segments[0].id)!, preparsed.fileName));
   }
-
   showView('main');
   await mount();
 }
@@ -331,35 +419,25 @@ async function mount(): Promise<void> {
   setControlsEnabled(false);
 
   $('timeline-strip').hidden = !s.merged;
-  const segTab = document.querySelector<HTMLButtonElement>('.tab[data-tab="segments"]')!;
-  segTab.hidden = !s.merged;
+  document.querySelector<HTMLButtonElement>('.tab[data-tab="segments"]')!.hidden = !s.merged;
 
   map = new GpsMap($('map'));
   charts = new TimeCharts($('chart-speed'), $('chart-gsensor'));
 
   if (s.merged) {
-    renderStrip($('strip-track'), s.lib);
-    $('strip-start').textContent = formatRecordedTime(s.lib.startMs, false);
-    $('strip-end').textContent = formatRecordedTime(s.lib.endMs, false);
+    stripLayout = renderStrip($('strip-track'), s.lib);
+    $('strip-start').textContent = formatRecordedTime(s.lib.startMs, false).slice(11);
+    $('strip-end').textContent = formatRecordedTime(s.lib.endMs, false).slice(11);
     renderSegmentsPanel();
   }
 
-  const seek = $<HTMLInputElement>('seek');
-  seek.min = '0';
-  seek.max = String(Math.max(1, Math.round(s.lib.spanMs)));
-  seek.value = '0';
-
-  s.player.onTimeUpdate = (absMs, segIndex) => {
-    if (!seekDragging) seek.value = String(Math.round(absMs - s.lib.startMs));
-    updateTimeLabels(absMs, segIndex);
-  };
+  s.player.onTimeUpdate = (absMs, segIndex) => updateLabels(absMs, segIndex);
   s.player.onPlayingChange = (playing) => {
     $('btn-play').textContent = playing ? '❚❚' : '▶';
     $('btn-play').setAttribute('aria-label', playing ? '일시정지' : '재생');
   };
   s.player.onSegmentChange = (index, status) => onSegmentChange(index, status);
 
-  updateTimeLabels(s.lib.startMs, 0);
   await s.player.init();
   setControlsEnabled(true);
 
@@ -383,23 +461,43 @@ function onSegmentChange(index: number, status: PlayerStatus | null): void {
     markActiveSegment($('strip-track'), index);
     highlightSegmentRow($('tab-segments'), index);
   }
+  // 현재 파일 길이에 맞춰 슬라이더를 다시 잡는다
+  const seek = $<HTMLInputElement>('seek');
+  seek.max = String(Math.max(1, Math.round(s.player.fileDuration)));
   for (let ch = 0; ch < 2; ch++) {
     const st = status?.channels[ch];
     $(`ch${ch}-note`).textContent = st?.available
       ? `${st.width || '?'}×${st.height || '?'} · ${doc?.video[ch]?.fps.toFixed(1) ?? '?'}fps`
       : st?.reason ?? '영상 없음';
   }
-  // 단일 파일 모드에서는 스캔 없이 문서에서 바로 그린다
-  if (!s.merged && doc) {
-    drawRecords(doc.firstTimeMs, doc.gps, doc.gsensor);
-  }
+  if (!s.merged && doc) drawRecords(doc.firstTimeMs, doc.gps, doc.gsensor);
+  updateLabels(s.player.position, index);
 }
 
-function drawRecords(
-  t0: number,
-  gps: JdrDocument['gps'],
-  gsensor: JdrDocument['gsensor'],
-): void {
+function updateLabels(absMs: number, segIndex: number): void {
+  const s = session;
+  if (!s) return;
+  const seg = s.lib.segments[segIndex];
+
+  // 시간 라벨은 "전체"가 아니라 "현재 파일" 기준이다
+  const filePos = s.player.filePosition;
+  const fileDur = s.player.fileDuration;
+  if (!seekDragging) $<HTMLInputElement>('seek').value = String(Math.round(filePos));
+  $('time-label').textContent = `${formatDuration(filePos / 1000)} / ${formatDuration(fileDur / 1000)}`;
+  $('file-note').textContent = seg
+    ? `구간 ${segIndex + 1}/${s.lib.segments.length} · 출처 ${seg.path}`
+    : '';
+
+  if (s.merged) updateStripCursor($('strip-track'), stripLayout, absMs);
+  const fix = map?.syncTo(absMs) ?? null;
+  charts?.syncTo((absMs - s.lib.startMs) / 1000);
+
+  const parts = [`기록 시각 ${formatRecordedTime(absMs)}`];
+  if (fix) parts.push(`${fix.speed.toFixed(1)} km/h (추정)`, `${fix.lat.toFixed(6)}, ${fix.lon.toFixed(6)}`);
+  $('recorded-time').textContent = parts.join('  ·  ');
+}
+
+function drawRecords(t0: number, gps: JdrDocument['gps'], gsensor: JdrDocument['gsensor']): void {
   const r = map?.render(gps);
   if (r) {
     $('map-note').textContent =
@@ -410,16 +508,17 @@ function drawRecords(
   charts?.render({ t0, gps, gsensor });
 }
 
-/** 전 구간 GPS·G센서 백그라운드 스캔 (D4) */
+/** 선택한 날짜의 구간만 스캔한다 (전체 폴더가 아니라) */
 function startRecordScan(): void {
   const s = session;
-  if (!s || !s.merged) return;
+  const fs = folderState;
+  if (!s || !s.merged || !fs) return;
   const items = s.lib.segments
-    .map((seg) => ({ seg, file: s.files.get(seg.id) }))
+    .map((seg) => ({ seg, file: fs.files.get(seg.id) }))
     .filter((x): x is { seg: SegmentInfo; file: File } => !!x.file);
 
   s.scan = new RecordScanJob();
-  $('scan-note').textContent = `전 구간 GPS·센서 스캔 중… 0 / ${num(items.length)}`;
+  $('scan-note').textContent = `${s.label} GPS·센서 스캔 중… 0 / ${num(items.length)}`;
   let lastDraw = 0;
 
   void s.scan.run(items, (chunk) => {
@@ -427,10 +526,10 @@ function startRecordScan(): void {
     s.records.add(chunk);
     $('scan-note').textContent =
       chunk.done >= chunk.total
-        ? `전 구간 스캔 완료 · GPS ${num(s.records.gps.length)}건 · 센서 ${num(s.records.sensorCount)}건`
-        : `전 구간 GPS·센서 스캔 중… ${num(chunk.done)} / ${num(chunk.total)}`;
+        ? `${s.label} 스캔 완료 · GPS ${num(s.records.gps.length)}건 · 센서 ${num(s.records.sensorCount)}건`
+        : `${s.label} GPS·센서 스캔 중… ${num(chunk.done)} / ${num(chunk.total)}`;
     const now = performance.now();
-    if (chunk.done >= chunk.total || now - lastDraw > 1500) {
+    if (chunk.done >= chunk.total || now - lastDraw > 1200) {
       lastDraw = now;
       s.records.finish();
       drawRecords(s.lib.startMs, s.records.gps, s.records.gsensor);
@@ -441,65 +540,10 @@ function startRecordScan(): void {
 function renderSegmentsPanel(): void {
   const s = session;
   if (!s) return;
-  renderSegments($('tab-segments'), s.lib, s.folders, s.player.segmentIndex, {
+  renderSegments($('tab-segments'), s.lib, [], s.player.segmentIndex, {
     onOpen: (index) => void s.player.openSegment(index),
-    onToggleFolder: (folder, selected) => {
-      const f = s.folders.find((x) => x.folder === folder);
-      if (!f) return;
-      f.selected = selected;
-      if (s.folders.every((x) => !x.selected)) {
-        f.selected = true;
-        toast('폴더를 최소 하나는 선택해야 합니다');
-        renderSegmentsPanel();
-        return;
-      }
-      void rebuildLibrary();
-    },
+    onToggleFolder: () => { /* 폴더 선택은 캘린더에서 한다 */ },
   });
-}
-
-/** 폴더 선택이 바뀌면 타임라인을 다시 만든다 */
-async function rebuildLibrary(): Promise<void> {
-  const s = session;
-  if (!s) return;
-  const at = s.player.position;
-  s.scan?.stop();
-  s.player.close();
-  s.lib = buildLibrary(selectedSegments(s.allSegments, s.folders));
-  if (s.lib.segments.length === 0) {
-    showError('선택한 폴더에 재생할 수 있는 구간이 없습니다.');
-    return;
-  }
-  s.records = new MergedRecords();
-  const player = new SequencePlayer(
-    s.lib, s.loader,
-    [$<HTMLCanvasElement>('canvas-0'), $<HTMLCanvasElement>('canvas-1')],
-    toast, codecOverride,
-  );
-  session = { ...s, player };
-  await mount();
-  await session.player.seek(at);
-}
-
-function updateTimeLabels(absMs: number, segIndex: number): void {
-  const s = session;
-  if (!s) return;
-  const rel = absMs - s.lib.startMs;
-  $('time-label').textContent = `${formatDuration(rel / 1000)} / ${formatDuration(s.lib.spanMs / 1000)}`;
-  if (s.merged) updateStripCursor($('strip-track'), s.lib, absMs);
-
-  const fix = map?.syncTo(absMs) ?? null;
-  charts?.syncTo((absMs - (s.merged ? s.lib.startMs : s.lib.segments[0].startMs)) / 1000);
-
-  const parts = [`기록 시각 ${formatRecordedTime(absMs)}`];
-  if (fix) parts.push(`${fix.speed.toFixed(1)} km/h (추정)`, `${fix.lat.toFixed(6)}, ${fix.lon.toFixed(6)}`);
-  $('recorded-time').textContent = parts.join('  ·  ');
-
-  // 증거 추적성: 지금 보이는 프레임이 어느 파일에서 왔는지 항상 밝힌다
-  const seg = s.lib.segments[segIndex];
-  $('source-note').textContent = s.merged && seg
-    ? `출처 ${seg.path}  ·  구간 ${segIndex + 1}/${s.lib.segments.length}`
-    : '';
 }
 
 // ── 재생 컨트롤 ─────────────────────────────────────
@@ -509,28 +553,36 @@ $('btn-play').addEventListener('click', () => {
   if (p.isPlaying) p.pause();
   else void p.play();
 });
-$('btn-prev').addEventListener('click', () => void session?.player.step(-1));
-$('btn-next').addEventListener('click', () => void session?.player.step(1));
+$('btn-prev-file').addEventListener('click', () => void session?.player.prevFile());
+$('btn-next-file').addEventListener('click', () => void session?.player.nextFile());
+$('btn-back10').addEventListener('click', () => void session?.player.skip(-SKIP_MS));
+$('btn-fwd10').addEventListener('click', () => void session?.player.skip(SKIP_MS));
 
 const seekEl = $<HTMLInputElement>('seek');
 seekEl.addEventListener('input', () => {
   seekDragging = true;
-  if (session) updateTimeLabels(session.lib.startMs + Number(seekEl.value), session.player.segmentIndex);
+  const s = session;
+  if (!s) return;
+  const seg = s.player.currentSegment;
+  if (seg) updateLabelsWhileDragging(Number(seekEl.value), seg.durationMs);
 });
+function updateLabelsWhileDragging(pos: number, dur: number): void {
+  $('time-label').textContent = `${formatDuration(pos / 1000)} / ${formatDuration(dur / 1000)}`;
+}
 const commitSeek = (): void => {
   if (!seekDragging || !session) return;
   seekDragging = false;
-  void session.player.seek(session.lib.startMs + Number(seekEl.value));
+  void session.player.seekInFile(Number(seekEl.value));
 };
 seekEl.addEventListener('change', commitSeek);
 seekEl.addEventListener('pointerup', commitSeek);
 
 $('strip-track').addEventListener('click', (e) => {
   const s = session;
-  if (!s || !s.merged) return;
+  if (!s || !s.merged || !stripLayout) return;
   const rect = ($('strip-track') as HTMLElement).getBoundingClientRect();
   const ratio = Math.max(0, Math.min(1, ((e as MouseEvent).clientX - rect.left) / rect.width));
-  void s.player.seek(s.lib.startMs + ratio * s.lib.spanMs);
+  void s.player.seek(stripLayout.timeAt(ratio));
 });
 
 $<HTMLSelectElement>('speed').addEventListener('change', (e) => {
@@ -546,12 +598,20 @@ document.addEventListener('keydown', (e) => {
   const p = session?.player;
   if (!p || views.main.hidden) return;
   if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
-  if (e.code === 'Space') {
-    e.preventDefault();
-    if (p.isPlaying) p.pause();
-    else void p.play();
-  } else if (e.code === 'ArrowRight') void p.step(1);
-  else if (e.code === 'ArrowLeft') void p.step(-1);
+  switch (e.code) {
+    case 'Space':
+      e.preventDefault();
+      if (p.isPlaying) p.pause();
+      else void p.play();
+      break;
+    case 'ArrowLeft': void p.skip(-SKIP_MS); break;
+    case 'ArrowRight': void p.skip(SKIP_MS); break;
+    case 'Comma': void p.step(-1); break;   // 프레임 단위는 키보드로
+    case 'Period': void p.step(1); break;
+    case 'BracketLeft': void p.prevFile(); break;
+    case 'BracketRight': void p.nextFile(); break;
+    default: break;
+  }
 });
 
 // ── 탭 ──────────────────────────────────────────────

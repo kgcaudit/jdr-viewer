@@ -1,0 +1,128 @@
+/**
+ * 월간 캘린더 — 날짜를 고르면 그 날짜만 불러온다.
+ *
+ * 어느 날에 얼마나 찍혔는지 한눈에 보이도록, 칸마다 녹화량 막대를 그린다.
+ */
+import type { CalendarIndex, DayEntry, MonthKey } from '../core/calendar';
+import { monthGrid } from '../core/calendar';
+import { formatDuration, formatRecordedTime } from '../core/time';
+import { bytes, escapeHtml, num } from './format';
+import type { FolderStat } from './segments';
+
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+export interface CalendarHandlers {
+  onPickDay(key: string): void;
+  onPickSession(key: string, sessionIndex: number): void;
+  onToggleFolder(folder: string, selected: boolean): void;
+  onMonthChange(index: number): void;
+}
+
+function hhmm(ms: number): string {
+  return formatRecordedTime(ms, false).slice(11, 16);
+}
+
+/** 하루 칸 */
+function dayCell(cell: { key: string; day: number; inMonth: boolean }, index: CalendarIndex, selected: string): string {
+  if (!cell.inMonth) return '<div class="cal-cell is-empty"></div>';
+  const day = index.byKey.get(cell.key);
+  if (!day) {
+    return `<div class="cal-cell is-off"><span class="cal-day">${cell.day}</span></div>`;
+  }
+  const ratio = index.maxCoveredMs > 0 ? day.coveredMs / index.maxCoveredMs : 0;
+  const height = Math.max(8, Math.round(ratio * 100));
+  return `<button class="cal-cell is-on${cell.key === selected ? ' is-selected' : ''}" type="button"
+      data-day="${cell.key}"
+      title="${escapeHtml(`${cell.key} · ${num(day.segments.length)}개 · ${formatDuration(day.coveredMs / 1000)} · ${bytes(day.bytes)}`)}">
+    <span class="cal-day">${cell.day}</span>
+    <span class="cal-bar" style="height:${height}%"></span>
+    <span class="cal-meta">${num(day.segments.length)}개<br>${formatDuration(day.coveredMs / 1000).replace(/^(\d+):/, '$1시간 ')}</span>
+  </button>`;
+}
+
+function sessionList(day: DayEntry): string {
+  if (day.sessions.length === 0) return '';
+  const rows = day.sessions
+    .map(
+      (s, i) => `<button class="session-row" type="button" data-session="${i}">
+        <span class="session-time">${hhmm(s.startMs)} ~ ${hhmm(s.endMs)}</span>
+        <span class="session-meta">${num(s.segments.length)}개 · ${formatDuration(s.coveredMs / 1000)}</span>
+      </button>`,
+    )
+    .join('');
+  return `
+    <p class="section-title">${escapeHtml(day.key)} 운행 ${num(day.sessions.length)}건${
+      day.crossesMidnight ? ' <span class="muted">· 자정 넘는 파일 포함</span>' : ''
+    }</p>
+    <div class="session-list">${rows}</div>
+    <button class="btn btn-primary cal-open-day" type="button" data-open-day="${day.key}">
+      이 날짜 전체 열기 (${num(day.segments.length)}개 · ${formatDuration(day.coveredMs / 1000)})
+    </button>`;
+}
+
+export function renderCalendar(
+  el: HTMLElement,
+  index: CalendarIndex,
+  monthIndex: number,
+  selectedDay: string,
+  folders: FolderStat[],
+  handlers: CalendarHandlers,
+): void {
+  if (index.days.length === 0) {
+    el.innerHTML = '<p class="muted">기록 시각을 읽을 수 있는 파일이 없습니다.</p>';
+    return;
+  }
+  const month: MonthKey = index.months[Math.max(0, Math.min(monthIndex, index.months.length - 1))];
+  const cells = monthGrid(month.year, month.month);
+  const day = selectedDay ? index.byKey.get(selectedDay) : undefined;
+
+  const folderBox =
+    folders.length > 1
+      ? `<div class="folder-list cal-folders">${folders
+          .map(
+            (f) => `<label class="folder-item">
+              <input type="checkbox" data-folder="${escapeHtml(f.folder)}" ${f.selected ? 'checked' : ''} />
+              <span><strong>${escapeHtml(f.folder || '(최상위)')}</strong>
+              <span class="muted">${num(f.count)}개 · ${bytes(f.bytes)}</span></span>
+            </label>`,
+          )
+          .join('')}</div>`
+      : '';
+
+  el.innerHTML = `
+    <div class="cal-head">
+      <button class="btn btn-icon" type="button" data-month="${monthIndex - 1}" ${monthIndex <= 0 ? 'disabled' : ''} aria-label="이전 달">‹</button>
+      <strong class="cal-title">${month.year}년 ${month.month}월</strong>
+      <button class="btn btn-icon" type="button" data-month="${monthIndex + 1}" ${
+        monthIndex >= index.months.length - 1 ? 'disabled' : ''
+      } aria-label="다음 달">›</button>
+    </div>
+    ${folderBox}
+    <div class="cal-weekdays">${WEEKDAYS.map((w, i) => `<span class="${i === 0 ? 'is-sun' : i === 6 ? 'is-sat' : ''}">${w}</span>`).join('')}</div>
+    <div class="cal-grid">${cells.map((c) => dayCell(c, index, selectedDay)).join('')}</div>
+    <p class="muted small cal-hint">막대 높이는 그날 녹화량입니다. 날짜를 누르면 운행별로 나뉩니다.</p>
+    <div class="cal-detail">${day ? sessionList(day) : '<p class="muted">날짜를 선택하세요.</p>'}</div>
+    <p class="section-title">전체</p>
+    <dl class="kv">
+      <dt>기간</dt><dd>${formatRecordedTime(index.days[0].startMs, false)}<br>~ ${formatRecordedTime(index.days[index.days.length - 1].endMs, false)}</dd>
+      <dt>날짜</dt><dd>${num(index.days.length)}일</dd>
+      <dt>파일</dt><dd>${num(index.totalSegments)}개 · ${bytes(index.totalBytes)}</dd>
+    </dl>
+  `;
+
+  el.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) =>
+    b.addEventListener('click', () => handlers.onPickDay(b.dataset.day!)),
+  );
+  el.querySelectorAll<HTMLButtonElement>('[data-month]').forEach((b) =>
+    b.addEventListener('click', () => handlers.onMonthChange(Number(b.dataset.month))),
+  );
+  el.querySelectorAll<HTMLButtonElement>('[data-session]').forEach((b) =>
+    b.addEventListener('click', () => handlers.onPickSession(selectedDay, Number(b.dataset.session))),
+  );
+  el.querySelectorAll<HTMLButtonElement>('[data-open-day]').forEach((b) =>
+    b.addEventListener('click', () => handlers.onPickSession(b.dataset.openDay!, -1)),
+  );
+  el.querySelectorAll<HTMLInputElement>('[data-folder]').forEach((c) =>
+    c.addEventListener('change', () => handlers.onToggleFolder(c.dataset.folder ?? '', c.checked)),
+  );
+}

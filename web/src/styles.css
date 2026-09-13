@@ -32,6 +32,8 @@
 }
 
 * { box-sizing: border-box; }
+/* .app { display: grid } 같은 클래스 규칙이 [hidden]을 덮어써서 숨긴 화면이 보이던 문제 */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -56,7 +58,18 @@ body {
 }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 .privacy { font-size: 12px; color: var(--muted); white-space: nowrap; }
-@media (max-width: 560px) { .privacy { display: none; } }
+.btn, .badge, .brand { white-space: nowrap; }
+.lbl-short { display: none; }
+/* 좁은 화면에서 버튼 글자가 세로로 쪼개지지 않도록 라벨을 줄인다 */
+@media (max-width: 620px) {
+  .privacy { display: none; }
+  .badge { display: none; }
+  .lbl-full { display: none; }
+  .lbl-short { display: inline; }
+  .topbar { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); gap: 8px; }
+  .topbar-actions { gap: 6px; }
+  .brand { font-size: 15px; }
+}
 
 /* ── 공통 ───────────────────────────── */
 .btn {
@@ -68,10 +81,10 @@ body {
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn-primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
 .btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
-.btn-icon { min-width: 44px; padding: 7px 10px; }
+.btn-icon { min-width: 42px; padding: 7px 9px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .linklike { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
-.select { font: inherit; padding: 7px 8px; min-height: 40px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.select { font: inherit; padding: 7px 6px; min-height: 40px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .view { padding: max(16px, env(safe-area-inset-top)) 16px 24px; }
@@ -117,20 +130,43 @@ body {
 @media (min-width: 620px) { .video-grid { grid-template-columns: 1fr 1fr; } }
 .video-cell { margin: 0; background: #000; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); position: relative; }
 .video-cell canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
+/* 기기 OSD(날짜·속도·IROAD)가 영상 하단에 찍히므로 라벨은 우측 상단에 둔다 */
 .video-cell figcaption {
-  position: absolute; inset: auto 0 0 0; display: flex; gap: 8px; align-items: center;
-  padding: 6px 8px; background: linear-gradient(transparent, rgba(0,0,0,.65)); color: #fff; font-size: 12px;
+  position: absolute; inset: 0 0 auto auto; display: flex; gap: 6px; align-items: center;
+  padding: 6px 8px; color: #fff; font-size: 12px; text-align: right;
+  flex-direction: column; align-items: flex-end; pointer-events: none;
 }
-.chip { background: rgba(255,255,255,.16); padding: 2px 8px; border-radius: 999px; backdrop-filter: blur(4px); }
-.cell-note { opacity: .85; }
+.chip {
+  background: rgba(0,0,0,.55); padding: 3px 9px; border-radius: 999px;
+  backdrop-filter: blur(6px); font-weight: 600; letter-spacing: -.01em;
+  box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.cell-note {
+  background: rgba(0,0,0,.45); padding: 2px 8px; border-radius: 999px;
+  backdrop-filter: blur(6px); font-size: 11px; opacity: .95;
+}
 
 .controls {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-top: 12px; padding: 10px; background: var(--surface);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 12px; padding: 8px 10px; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
 }
-.seek { flex: 1 1 200px; min-width: 140px; accent-color: var(--accent); height: 40px; }
-.time { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.seek { flex: 1 1 120px; min-width: 90px; accent-color: var(--accent); height: 40px; }
+.time {
+  font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--muted);
+  white-space: nowrap; flex: 0 0 auto;
+}
+/* 좁아지면 재생 컨트롤 / 슬라이더 / 설정 세 덩어리로 줄바꿈된다 */
+@media (max-width: 620px) {
+  /* 재생 컨트롤 한 줄 + 슬라이더 한 줄로 떨어지게 폭을 조인다 */
+  .controls { gap: 5px; padding: 8px; }
+  .controls .btn-icon { min-width: 40px; padding: 7px 6px; }
+  .controls .btn-skip { min-width: 44px; }
+  .controls .btn-play { min-width: 44px; }
+  .controls .select { min-width: 56px; padding: 7px 4px; }
+  .seek { flex: 1 1 100%; order: 10; }
+  .time { order: 11; }
+}
 .recorded-time { margin: 8px 2px 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ── 패널/탭 ────────────────────────── */
@@ -234,3 +270,73 @@ body {
 .invalid-item { padding: 6px 10px; border-left: 3px solid var(--warn); background: var(--surface-2); border-radius: 0 6px 6px 0; }
 .invalid-item strong { display: block; font-size: 12px; }
 .invalid-item span { font-size: 11px; color: var(--muted); }
+
+/* ── 캘린더 ─────────────────────────────── */
+.cal-wrap {
+  max-width: 760px; margin: 0 auto; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow);
+}
+.cal-head { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 12px; }
+.cal-title { font-size: 17px; font-variant-numeric: tabular-nums; }
+.cal-folders { margin-bottom: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.cal-folders .folder-item { padding: 6px 10px; }
+.cal-weekdays {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+  font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 4px;
+}
+.cal-weekdays .is-sun { color: #c53030; }
+.cal-weekdays .is-sat { color: #2b6cb0; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-cell {
+  position: relative; min-height: 56px; border-radius: 8px; border: 1px solid transparent;
+  background: none; font: inherit; color: inherit; padding: 5px 6px; overflow: hidden;
+  display: flex; flex-direction: column; align-items: flex-start;
+}
+.cal-cell.is-empty { visibility: hidden; }
+.cal-cell.is-off { color: var(--muted); opacity: .45; }
+.cal-cell.is-on {
+  background: var(--surface-2); border-color: var(--border); cursor: pointer;
+  transition: border-color .12s, transform .06s;
+}
+.cal-cell.is-on .cal-day { color: var(--text); }
+.cal-cell.is-on:hover { border-color: var(--accent); }
+.cal-cell.is-on:active { transform: scale(.97); }
+.cal-cell.is-selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-day { font-size: 12px; font-weight: 600; z-index: 1; font-variant-numeric: tabular-nums; }
+/* 막대 높이 = 그날 녹화량. 셀 아래쪽 일부만 쓰므로 글자를 가리지 않는다 */
+.cal-bar {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 34%; border-radius: 0 0 7px 7px;
+  background: var(--accent); opacity: .34;
+}
+.cal-cell.is-selected .cal-bar { opacity: .55; }
+.cal-meta {
+  position: relative; z-index: 1; margin-top: auto; font-size: 10px; line-height: 1.25;
+  color: var(--muted); font-variant-numeric: tabular-nums; text-align: left;
+}
+.cal-hint { margin: 10px 2px 4px; }
+.cal-detail { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 12px; }
+.cal-open-day { width: 100%; margin-top: 10px; }
+
+.session-list { display: grid; gap: 6px; }
+.session-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: none; color: inherit; font: inherit; cursor: pointer; min-height: 44px; text-align: left;
+}
+.session-row:hover { background: var(--surface-2); border-color: var(--accent); }
+.session-time { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; }
+.session-meta { font-size: 12px; color: var(--muted); }
+
+/* ── ±10초 버튼 ─────────────────────────── */
+.btn-skip {
+  min-width: 48px; padding: 6px 6px; font-size: 12px; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 2px; justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.skip-arc { font-size: 16px; font-weight: 400; line-height: 1; }
+.btn-play { min-width: 48px; font-size: 15px; }
+.file-note {
+  margin: 6px 2px 0; font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums; word-break: break-all;
+}

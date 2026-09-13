@@ -6,6 +6,7 @@
  */
 import type { Library } from '../core/library';
 import type { SegmentInfo } from '../core/segment';
+import { StripLayout } from '../core/strip-layout';
 import { formatDuration, formatRecordedTime } from '../core/time';
 import { bytes, escapeHtml, num } from './format';
 
@@ -24,39 +25,42 @@ export interface FolderStat {
   selected: boolean;
 }
 
-/** 벽시계 축 위에 세그먼트와 빈 구간을 그린다 (D2). */
-export function renderStrip(track: HTMLElement, lib: Library): void {
-  if (lib.segments.length === 0 || !(lib.spanMs > 0)) {
+/**
+ * 타임라인 스트립을 그린다.
+ * 축은 벽시계 비율이 아니라 "빈 구간을 눌러 담은" 비율이다 (strip-layout.ts 참조).
+ */
+export function renderStrip(track: HTMLElement, lib: Library): StripLayout | null {
+  if (lib.segments.length === 0) {
     track.innerHTML = '';
-    return;
+    return null;
   }
-  const pct = (ms: number) => ((ms - lib.startMs) / lib.spanMs) * 100;
-  const parts = lib.segments.map((s, i) => {
-    const left = pct(s.startMs);
-    const width = Math.max(0.15, pct(s.endMs) - left);
-    return `<span class="strip-seg" data-seg="${i}" style="left:${left}%;width:${width}%" title="${escapeHtml(
-      `${s.name}\n${formatRecordedTime(s.startMs, false)} ~ ${formatRecordedTime(s.endMs, false)}`,
-    )}"></span>`;
-  });
-  // 빈 구간은 숨기지 않는다 — 녹화 공백도 사실이다
-  for (const g of lib.gaps) {
-    const left = pct(g.fromMs);
-    const width = Math.max(0.1, pct(g.toMs) - left);
-    parts.push(
-      `<span class="strip-gap" style="left:${left}%;width:${width}%" title="${escapeHtml(
-        `빈 구간 ${formatDuration(g.durationMs / 1000)}`,
-      )}"></span>`,
-    );
+  const layout = new StripLayout(lib);
+  const parts: string[] = [];
+  for (const it of layout.items) {
+    const left = it.from * 100;
+    const width = Math.max(0.25, (it.to - it.from) * 100);
+    if (it.kind === 'segment') {
+      const s = lib.segments[it.index];
+      parts.push(`<span class="strip-seg" data-seg="${it.index}" style="left:${left}%;width:${width}%" title="${escapeHtml(
+        `${s.name}\n${formatRecordedTime(s.startMs, false)} ~ ${formatRecordedTime(s.endMs, false)}`,
+      )}"></span>`);
+    } else {
+      const g = lib.gaps[it.index];
+      // 빈 구간은 숨기지 않는다 — 녹화 공백도 사실이다. 다만 폭은 눌러 담는다.
+      parts.push(`<span class="strip-gap" style="left:${left}%;width:${width}%" title="${escapeHtml(
+        `빈 구간 ${formatDuration(g.durationMs / 1000)}\n${formatRecordedTime(g.fromMs, false)} ~ ${formatRecordedTime(g.toMs, false)}`,
+      )}"></span>`);
+    }
   }
   parts.push('<span id="strip-cursor" class="strip-cursor" style="left:0%"></span>');
   track.innerHTML = parts.join('');
+  return layout;
 }
 
-export function updateStripCursor(track: HTMLElement, lib: Library, absMs: number): void {
+export function updateStripCursor(track: HTMLElement, layout: StripLayout | null, absMs: number): void {
   const cursor = track.querySelector<HTMLElement>('#strip-cursor');
-  if (!cursor || !(lib.spanMs > 0)) return;
-  const p = Math.max(0, Math.min(100, ((absMs - lib.startMs) / lib.spanMs) * 100));
-  cursor.style.left = `${p}%`;
+  if (!cursor || !layout) return;
+  cursor.style.left = `${(layout.ratioAt(absMs) * 100).toFixed(3)}%`;
 }
 
 export function markActiveSegment(track: HTMLElement, index: number): void {

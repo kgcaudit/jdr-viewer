@@ -16,9 +16,10 @@
         <span class="badge">프로토타입</span>
       </div>
       <div class="topbar-actions">
+        <button id="btn-back-calendar" class="btn" type="button" hidden>‹ <span class="lbl-full">날짜 선택</span><span class="lbl-short">날짜</span></button>
         <span class="privacy" title="파일은 브라우저 안에서만 처리됩니다">🔒 업로드 없음</span>
-        <button id="btn-open-folder" class="btn" type="button">폴더 열기</button>
-        <button id="btn-open" class="btn btn-primary" type="button">파일 열기</button>
+        <button id="btn-open-folder" class="btn" type="button">폴더<span class="lbl-full"> 열기</span></button>
+        <button id="btn-open" class="btn btn-primary" type="button">파일<span class="lbl-full"> 열기</span></button>
       </div>
     </header>
 
@@ -67,26 +68,35 @@
       </div>
     </main>
 
+    <!-- 날짜 선택 -->
+    <main id="view-calendar" class="view" hidden>
+      <div class="cal-wrap">
+        <div id="calendar"></div>
+      </div>
+    </main>
+
     <!-- 본 화면 -->
     <main id="view-main" class="view app" hidden>
       <section class="stage">
         <div id="video-grid" class="video-grid">
           <figure class="video-cell" data-channel="0">
             <canvas id="canvas-0" width="1280" height="720"></canvas>
-            <figcaption><span class="chip">전방 CH0</span><span id="ch0-note" class="cell-note"></span></figcaption>
+            <figcaption class="cell-cap"><span class="chip">전방 CH0</span><span id="ch0-note" class="cell-note"></span></figcaption>
           </figure>
           <figure class="video-cell" data-channel="1">
             <canvas id="canvas-1" width="1280" height="720"></canvas>
-            <figcaption><span class="chip">후방 CH1</span><span id="ch1-note" class="cell-note"></span></figcaption>
+            <figcaption class="cell-cap"><span class="chip">후방 CH1</span><span id="ch1-note" class="cell-note"></span></figcaption>
           </figure>
         </div>
 
         <div class="controls">
-          <button id="btn-play" class="btn btn-icon" type="button" aria-label="재생">▶</button>
-          <button id="btn-prev" class="btn btn-icon" type="button" aria-label="이전 프레임" title="이전 프레임">⏮</button>
-          <button id="btn-next" class="btn btn-icon" type="button" aria-label="다음 프레임" title="다음 프레임">⏭</button>
-          <input id="seek" class="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="재생 위치" />
-          <span id="time-label" class="time">0:00.0 / 0:00.0</span>
+          <button id="btn-prev-file" class="btn btn-icon" type="button" aria-label="이전 영상 파일" title="이전 영상 파일">⏮</button>
+          <button id="btn-back10" class="btn btn-skip" type="button" aria-label="10초 뒤로" title="10초 뒤로"><span class="skip-arc">⟲</span>10</button>
+          <button id="btn-play" class="btn btn-icon btn-play" type="button" aria-label="재생">▶</button>
+          <button id="btn-fwd10" class="btn btn-skip" type="button" aria-label="10초 앞으로" title="10초 앞으로">10<span class="skip-arc">⟳</span></button>
+          <button id="btn-next-file" class="btn btn-icon" type="button" aria-label="다음 영상 파일" title="다음 영상 파일">⏭</button>
+          <input id="seek" class="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="현재 영상 파일 안에서의 재생 위치" />
+          <span id="time-label" class="time">0:00 / 0:00</span>
           <select id="speed" class="select" aria-label="재생 속도">
             <option value="0.5">0.5x</option>
             <option value="1" selected>1x</option>
@@ -95,6 +105,7 @@
           </select>
           <button id="btn-mute" class="btn btn-icon" type="button" aria-label="음소거">🔊</button>
         </div>
+        <p id="file-note" class="file-note"></p>
         <div id="timeline-strip" class="strip" hidden>
           <div id="strip-track" class="strip-track"></div>
           <div class="strip-labels">
@@ -103,7 +114,6 @@
           </div>
         </div>
         <p id="recorded-time" class="recorded-time"></p>
-        <p id="source-note" class="muted small source-note"></p>
       </section>
 
       <section class="panel">

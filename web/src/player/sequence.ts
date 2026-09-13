@@ -25,6 +25,8 @@ export interface SegmentLoader {
 
 /** 경계 몇 ms 전부터 다음 세그먼트를 미리 읽을지 */
 const PRELOAD_LEAD_MS = 2500;
+/** ⏮ 을 눌렀을 때, 이 시간 안이면 이전 파일로 / 지났으면 현재 파일 처음으로 (플레이어 관례) */
+const PREV_FILE_RESTART_MS = 3000;
 
 export class SequencePlayer {
   private inner: JdrPlayer | null = null;
@@ -36,6 +38,8 @@ export class SequencePlayer {
   private speed = 1;
   private muted = false;
   private switching = false;
+  /** 전환 중에 들어온 요청. 버리지 않고 마지막 것을 이어서 처리한다. */
+  private pendingTarget: { index: number; absMs: number } | null = null;
   private lastAbsMs: number;
 
   onTimeUpdate: ((absMs: number, segIndex: number) => void) | null = null;
@@ -123,6 +127,55 @@ export class SequencePlayer {
     await this.inner.step(delta);
   }
 
+  // ── 파일 단위 조작 ─────────────────────────────────
+
+  /** 현재 파일 안에서의 위치(ms) */
+  get filePosition(): number {
+    const seg = this.currentSegment;
+    return seg ? Math.max(0, this.lastAbsMs - seg.startMs) : 0;
+  }
+
+  /** 현재 파일의 길이(ms) */
+  get fileDuration(): number {
+    return this.currentSegment?.durationMs ?? 0;
+  }
+
+  get segmentCount(): number {
+    return this.lib.segments.length;
+  }
+
+  /** 현재 파일 안에서 이동 */
+  async seekInFile(relMs: number): Promise<void> {
+    const seg = this.currentSegment;
+    if (!seg) return;
+    await this.seek(seg.startMs + Math.max(0, Math.min(relMs, seg.durationMs)));
+  }
+
+  /** 초 단위 건너뛰기. 파일 경계를 넘으면 앞/뒤 파일로 이어진다. */
+  async skip(deltaMs: number): Promise<void> {
+    await this.seek(this.lastAbsMs + deltaMs);
+  }
+
+  /**
+   * 이전 파일. 재생이 막 시작됐으면 앞 파일로, 조금 지났으면 현재 파일 처음으로 간다.
+   * 오디오 플레이어의 오랜 관례이고, 잘못 눌렀을 때 복구가 쉽다.
+   */
+  async prevFile(): Promise<void> {
+    if (this.index < 0) return;
+    if (this.filePosition > PREV_FILE_RESTART_MS) {
+      await this.seekInFile(0);
+      return;
+    }
+    if (this.index > 0) await this.openSegment(this.index - 1);
+    else await this.seekInFile(0);
+  }
+
+  async nextFile(): Promise<void> {
+    if (this.index < 0) return;
+    if (this.index + 1 < this.lib.segments.length) await this.openSegment(this.index + 1);
+    else await this.seekInFile(this.fileDuration);
+  }
+
   async pumpOnce(): Promise<void> {
     await this.inner?.pumpOnce();
   }
@@ -145,7 +198,12 @@ export class SequencePlayer {
   // ── 내부 ───────────────────────────────────────────
 
   private async activate(index: number, absMs: number): Promise<PlayerStatus | null> {
-    if (this.switching) return null;
+    // 구간 전환에는 파싱·디코더 재설정이 필요해 수백 ms가 걸린다.
+    // 그 사이의 클릭을 버리면 "눌러도 반응이 없는" 상태가 되므로 마지막 요청을 기억해 둔다.
+    if (this.switching) {
+      this.pendingTarget = { index, absMs };
+      return null;
+    }
     this.switching = true;
     const seg = this.lib.segments[index];
     try {
@@ -181,6 +239,11 @@ export class SequencePlayer {
       return null;
     } finally {
       this.switching = false;
+      const next = this.pendingTarget;
+      if (next) {
+        this.pendingTarget = null;
+        void this.activate(next.index, next.absMs);
+      }
     }
   }
 
