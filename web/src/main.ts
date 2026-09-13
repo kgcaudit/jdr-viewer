@@ -647,15 +647,23 @@ function startDebugMeter(): void {
   el.hidden = false;
   clearInterval(debugTimer);
   let prev = [{ decoded: 0, rendered: 0, dropped: 0 }, { decoded: 0, rendered: 0, dropped: 0 }];
+  let prevIo = { hits: 0, misses: 0, waitMs: 0 };
   debugTimer = window.setInterval(() => {
     const cur = session?.player.channelStats ?? [];
     if (cur.length === 0) return;
     const parts = cur.map((c, i) => {
       const p = prev[i] ?? { decoded: 0, rendered: 0, dropped: 0 };
-      return `CH${i} 디코딩 ${c.decoded - p.decoded}/s · 렌더 ${c.rendered - p.rendered}/s · 버림 ${c.dropped - p.dropped}/s`;
+      return `CH${i} 디코딩 ${c.decoded - p.decoded} · 렌더 ${c.rendered - p.rendered} · 버림 ${c.dropped - p.dropped}`;
     });
     prev = cur;
-    el.textContent = parts.join('   |   ');
+
+    // 읽기 대기 시간이 크면 끊김의 원인이 디코딩이 아니라 파일 읽기다
+    const io = session?.player.ioStats;
+    if (io) {
+      parts.push(`읽기 대기 ${Math.round(io.waitMs - prevIo.waitMs)}ms · 미스 ${io.misses - prevIo.misses}`);
+      prevIo = io;
+    }
+    el.textContent = parts.join('  |  ') + '  (초당)';
   }, 1000);
 }
 

@@ -94,43 +94,116 @@ export class WindowReader {
  */
 export class BufferedByteSource implements ByteSource {
   private chunks: { start: number; end: number; data: Bytes }[] = [];
-  /** 적중률 확인용 */
-  stats = { hits: 0, misses: 0, bytesRead: 0 };
+  /** 지금 백그라운드로 당겨오는 중인 구간 */
+  private inflight = new Map<number, Promise<void>>();
+  /**
+   * 진단용. waitMs는 "실제로 기다린 시간"이다 —
+   * 이 값이 크면 재생 끊김의 원인이 디코딩이 아니라 읽기라는 뜻이다.
+   */
+  stats = { hits: 0, misses: 0, bytesRead: 0, waitMs: 0 };
 
   constructor(
     private readonly inner: ByteSource,
+    /**
+     * 한 번에 읽는 크기.
+     *
+     * 작게 잡으면 미스 한 번의 대기는 짧아지지만 **미스 자체가 잦아진다**.
+     * 인공 지연을 넣고 600프레임을 돌려 보니 1MB×10은 미스 11회/대기 415ms,
+     * 4MB×6은 미스 3회/대기 269ms로 4MB 쪽이 모든 지표에서 앞섰다.
+     * 채널 0·1이 번갈아 나오므로 창이 넉넉해야 양쪽이 같은 덩어리를 공유한다.
+     */
     private readonly chunkSize = 4 << 20,
-    private readonly maxChunks = 3,
+    private readonly maxChunks = 6,
   ) {}
 
   get size(): number { return this.inner.size; }
   get name(): string { return this.inner.name; }
 
-  async read(offset: number, length: number): Promise<Bytes> {
-    const end = offset + length;
+  private find(offset: number, end: number): { start: number; end: number; data: Bytes } | null {
     for (let i = 0; i < this.chunks.length; i++) {
       const c = this.chunks[i];
       if (offset >= c.start && end <= c.end) {
-        // 최근 쓴 것을 뒤로 보내 오래된 것부터 버린다
         if (i !== this.chunks.length - 1) {
           this.chunks.splice(i, 1);
           this.chunks.push(c);
         }
-        this.stats.hits++;
-        return c.data.subarray(offset - c.start, end - c.start);
+        return c;
       }
+    }
+    return null;
+  }
+
+  private store(start: number, data: Bytes): void {
+    if (data.length === 0) return;
+    this.chunks.push({ start, end: start + data.length, data });
+    while (this.chunks.length > this.maxChunks) this.chunks.shift();
+  }
+
+  /**
+   * 뒤쪽 구간을 미리 당겨온다. 기다리지 않는다.
+   * 재생은 파일을 순서대로 훑으므로, 이것만으로 미스가 거의 사라진다.
+   */
+  prefetch(start: number): void {
+    const aligned = Math.max(0, Math.floor(start / this.chunkSize) * this.chunkSize);
+    if (aligned >= this.inner.size) return;
+    if (this.inflight.has(aligned)) return;
+    if (this.find(aligned, aligned + 1)) return;
+
+    const want = Math.min(this.chunkSize, this.inner.size - aligned);
+    const job = this.inner
+      .read(aligned, want)
+      .then((data) => {
+        this.stats.bytesRead += data.length;
+        this.store(aligned, data);
+      })
+      .catch(() => { /* 미리 읽기 실패는 실제 읽기에서 다시 시도한다 */ })
+      .finally(() => { this.inflight.delete(aligned); });
+    this.inflight.set(aligned, job);
+  }
+
+  async read(offset: number, length: number): Promise<Bytes> {
+    const end = offset + length;
+    const hit = this.find(offset, end);
+    if (hit) {
+      this.stats.hits++;
+      // 절반쯤 왔으면 다음 둘을 당겨둔다.
+      // 늦게 당기면 프레임 간격(약 16ms) 안에 못 끝나 결국 기다리게 된다.
+      if (end > hit.start + this.chunkSize / 2) {
+        this.prefetch(hit.end);
+        this.prefetch(hit.end + this.chunkSize);
+      }
+      return hit.data.subarray(offset - hit.start, end - hit.start);
     }
 
     this.stats.misses++;
-    // 요청보다 훨씬 크게 읽어 둔다. 어차피 다음 프레임이 바로 뒤에 있다.
-    const want = Math.min(Math.max(this.chunkSize, length), this.inner.size - offset);
-    const data = await this.inner.read(offset, want);
-    this.stats.bytesRead += data.length;
-    if (data.length >= length) {
-      this.chunks.push({ start: offset, end: offset + data.length, data });
-      while (this.chunks.length > this.maxChunks) this.chunks.shift();
+    // 실제 읽기도 미리 읽기와 같은 경계에서 시작한다.
+    // 어긋나면 같은 구간을 두 번 읽게 된다.
+    const aligned = Math.floor(offset / this.chunkSize) * this.chunkSize;
+    const t0 = performance.now();
+
+    // 이미 당겨오는 중이면 그게 끝나기를 기다린다
+    const running = this.inflight.get(aligned);
+    if (running) {
+      await running;
+      const after = this.find(offset, end);
+      if (after) {
+        this.stats.waitMs += performance.now() - t0;
+        this.prefetch(after.end);
+        this.prefetch(after.end + this.chunkSize);
+        return after.data.subarray(offset - after.start, end - after.start);
+      }
     }
-    return data.subarray(0, Math.min(length, data.length));
+
+    const want = Math.min(Math.max(this.chunkSize, end - aligned), this.inner.size - aligned);
+    const data = await this.inner.read(aligned, want);
+    this.stats.waitMs += performance.now() - t0;
+    this.stats.bytesRead += data.length;
+    this.store(aligned, data);
+    // 바로 다음 구간들을 미리 당겨 다음 미스를 막는다
+    this.prefetch(aligned + data.length);
+    this.prefetch(aligned + data.length + this.chunkSize);
+    const from = offset - aligned;
+    return data.subarray(from, Math.min(from + length, data.length));
   }
 
   /** 파싱이 끝난 뒤처럼, 더는 쓰지 않을 버퍼를 비운다 */

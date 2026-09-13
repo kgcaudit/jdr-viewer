@@ -77,10 +77,8 @@ body {
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
   cursor: pointer; min-height: 40px;
 }
-.btn:hover { background: var(--surface-2); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn-primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
-.btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
 .btn-icon { min-width: 42px; padding: 7px 9px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .linklike { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
@@ -251,7 +249,6 @@ body {
   padding: 8px 10px; border: 1px solid transparent; border-radius: 8px;
   background: none; color: inherit; font: inherit; cursor: pointer; min-height: 44px;
 }
-.seg-row:hover { background: var(--surface-2); }
 .seg-row.is-active { background: var(--surface-2); border-color: var(--accent); }
 .seg-time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .seg-main { min-width: 0; display: flex; flex-direction: column; }
@@ -299,7 +296,6 @@ body {
   transition: border-color .12s, transform .06s;
 }
 .cal-cell.is-on .cal-day { color: var(--text); }
-.cal-cell.is-on:hover { border-color: var(--accent); }
 .cal-cell.is-on:active { transform: scale(.97); }
 .cal-cell.is-selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .cal-day { font-size: 12px; font-weight: 600; z-index: 1; font-variant-numeric: tabular-nums; }
@@ -324,7 +320,6 @@ body {
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
   background: none; color: inherit; font: inherit; cursor: pointer; min-height: 44px; text-align: left;
 }
-.session-row:hover { background: var(--surface-2); border-color: var(--accent); }
 .session-time { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; }
 .session-meta { font-size: 12px; color: var(--muted); }
 
@@ -350,7 +345,6 @@ body {
   color: var(--text); font: inherit; font-size: 13px; font-weight: 550;
   cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.chip-btn:hover { background: var(--surface-2); }
 .chip-btn.is-active { border-color: var(--accent); background: var(--surface-2); }
 .chip-sub { font-size: 11px; color: var(--muted); font-weight: 400; }
 
@@ -369,3 +363,27 @@ body {
 }
 .u-legend .u-label { display: inline-block; min-width: 2.5ch; text-align: left; }
 .u-legend tr.u-series th { white-space: nowrap; }
+
+/* ── 누름 표시 ──────────────────────────
+ * 터치 화면에서 :hover는 손을 떼도 그대로 남는다. 안드로이드 크롬은 다른 곳을
+ * 누를 때까지 마지막으로 누른 요소를 계속 hover로 취급하므로, 버튼 바탕이
+ * 회색으로 굳어 버린다. 그래서 hover는 마우스가 있는 기기에서만 켜고,
+ * 터치에는 손가락을 대고 있는 동안만 유지되는 :active를 준다.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .btn:not(:disabled):hover { background: var(--surface-2); }
+  .btn-primary:not(:disabled):hover { filter: brightness(1.08); background: var(--accent); }
+  .seg-row:hover { background: var(--surface-2); }
+  .cal-cell.is-on:hover { border-color: var(--accent); }
+  .session-row:hover { background: var(--surface-2); border-color: var(--accent); }
+  .chip-btn:hover { background: var(--surface-2); }
+}
+
+.btn:not(:disabled):active { background: var(--surface-2); }
+.btn-primary:not(:disabled):active { filter: brightness(0.94); background: var(--accent); }
+.seg-row:active, .chip-btn:active { background: var(--surface-2); }
+.session-row:active { background: var(--surface-2); border-color: var(--accent); }
+/* 누를 때 나타나는 회색 사각형도 안드로이드에서는 잔상처럼 보인다 */
+.btn, .seg-row, .chip-btn, .session-row, .cal-cell, .folder-item, .linklike {
+  -webkit-tap-highlight-color: transparent;
+}

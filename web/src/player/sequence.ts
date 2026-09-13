@@ -8,7 +8,7 @@
  * 위치는 언제나 **절대 벽시계 시각(ms)** 이다. 어느 파일에서 온 프레임인지
  * 항상 되짚을 수 있어야 하므로 세그먼트 인덱스를 함께 통지한다.
  */
-import type { ByteSource } from '../core/byte-source';
+import { BufferedByteSource, type ByteSource } from '../core/byte-source';
 import type { JdrDocument } from '../core/types';
 import type { SegmentInfo } from '../core/segment';
 import { type Library, gapAt, resolvePlayPosition, segmentIndexAt } from '../core/library';
@@ -76,6 +76,14 @@ export class SequencePlayer {
   get isPlaying(): boolean { return this.wantPlaying; }
   get channelStats(): { decoded: number; rendered: number; dropped: number }[] {
     return this.inner?.channelStats ?? [];
+  }
+
+  /** 읽기 진단 — waitMs가 크면 끊김의 원인이 디코딩이 아니라 파일 읽기다 */
+  get ioStats(): { hits: number; misses: number; waitMs: number } | null {
+    const src = this.current?.src;
+    return src instanceof BufferedByteSource
+      ? { hits: src.stats.hits, misses: src.stats.misses, waitMs: src.stats.waitMs }
+      : null;
   }
 
   /** 첫 세그먼트를 붙이고 첫 프레임을 띄운다. */

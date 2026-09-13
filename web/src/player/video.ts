@@ -4,15 +4,19 @@
  * 안드로이드 MediaCodec과 달리 description을 생략하면 Annex-B를 그대로 받아준다.
  * JDR 태그(00VI/00VP)가 key/delta를 알려주므로 비트스트림을 뒤질 필요도 없다.
  */
-import type { ByteSource } from '../core/byte-source';
+import { BufferedByteSource, type ByteSource } from '../core/byte-source';
 import type { JdrDocument } from '../core/types';
 import { PACKET_HEADER_SIZE, buildKeyChunk } from '../core/parser';
 import { buildFrameIndex, keyframeAtOrBefore, type FrameIndex } from './index';
 
 /** 디코더에 미리 넣어둘 프레임 수 */
 const QUEUE_TARGET = 16;
-/** 렌더 대기열 최대치 (VideoFrame은 GPU 메모리를 잡으므로 많이 쌓으면 안 된다) */
-const PENDING_MAX = 6;
+/**
+ * 렌더 대기열 최대치.
+ * 줄이면 GPU 메모리는 아끼지만 지터를 못 버텨 끊김이 늘어난다.
+ * 720p 프레임 열 몇 개는 부담이 아니므로 넉넉히 잡는다.
+ */
+const PENDING_MAX = 14;
 
 export interface ChannelStatus {
   available: boolean;
@@ -67,9 +71,9 @@ export class ChannelVideo {
 
     const config: VideoDecoderConfig = {
       codec,
-      // 파일 재생에서는 저지연보다 고른 처리량이 중요하다.
-      // true면 디코더가 버퍼링을 거의 하지 않아 프레임이 튀는 원인이 된다.
-      optimizeForLatency: false,
+      // 블랙박스 H.264는 B프레임이 없어 재정렬이 필요 없다.
+      // false로 두면 디코더가 출력을 미뤄 오히려 프레임이 늦게 나온다.
+      optimizeForLatency: true,
       hardwareAcceleration: 'prefer-hardware',
       // description 없음 → Annex-B 모드
     };
@@ -211,6 +215,12 @@ export class ChannelVideo {
           }),
         );
         this.nextFrame = f + 1;
+
+        // 앞으로 재생할 구간을 미리 당겨 둔다 (기다리지 않는다)
+        if (this.src instanceof BufferedByteSource) {
+          const ahead = this.index.packetIndex[Math.min(f + 90, this.index.count - 1)];
+          this.src.prefetch(this.doc.packets.offset[ahead]);
+        }
       }
     } catch (e) {
       this.onError(`채널 ${this.channel} 공급 오류: ${e instanceof Error ? e.message : String(e)}`);

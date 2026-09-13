@@ -24,10 +24,10 @@ const makeData = (n: number): Uint8Array<ArrayBuffer> => {
 };
 
 describe('읽기 버퍼링', () => {
-  it('작은 읽기를 반복해도 파일은 몇 번만 읽는다', async () => {
+  it('작은 읽기를 반복해도 같은 구간을 두 번 읽지 않는다', async () => {
     const data = makeData(1 << 20);
     const inner = new CountingSource(data);
-    const src = new BufferedByteSource(inner, 256 * 1024, 3);
+    const src = new BufferedByteSource(inner, 256 * 1024, 8);
 
     // 재생이 프레임을 훑듯 16KB씩 순서대로 읽는다
     for (let off = 0; off + 16384 <= data.length; off += 16384) {
@@ -35,8 +35,23 @@ describe('읽기 버퍼링', () => {
       expect(got[0]).toBe(data[off]);
       expect(got[16383]).toBe(data[off + 16383]);
     }
-    expect(inner.reads).toBe(4);            // 256KB × 4
-    expect(src.stats.hits).toBe(64 - 4);
+    expect(inner.reads).toBe(4);                  // 256KB × 4, 중복 없음
+    expect(inner.bytes).toBe(data.length);
+  });
+
+  it('앞 구간을 미리 당겨와 실제로 기다리는 일이 거의 없다', async () => {
+    const data = makeData(1 << 20);
+    const inner = new CountingSource(data);
+    const src = new BufferedByteSource(inner, 256 * 1024, 8);
+
+    for (let off = 0; off + 16384 <= data.length; off += 16384) {
+      await src.read(off, 16384);
+      // 미리 읽기가 끝날 틈을 준다 (실제 재생도 프레임 사이에 시간이 있다)
+      await Promise.resolve();
+    }
+    // 64번 읽는 동안 실제로 기다린 것은 맨 처음 한 번뿐이어야 한다
+    expect(src.stats.misses).toBe(1);
+    expect(src.stats.hits).toBe(63);
   });
 
   it('내용이 원본과 정확히 같다', async () => {
@@ -55,16 +70,19 @@ describe('읽기 버퍼링', () => {
     expect(Array.from(got.subarray(0, 8))).toEqual(Array.from(data.subarray(1000, 1008)));
   });
 
-  it('오래된 버퍼부터 버린다 (메모리가 무한정 늘지 않는다)', async () => {
-    const data = makeData(4 << 20);
+  it('버퍼 개수 상한을 지킨다 (메모리가 무한정 늘지 않는다)', async () => {
+    const data = makeData(8 << 20);
     const inner = new CountingSource(data);
-    const src = new BufferedByteSource(inner, 256 * 1024, 2);
-    // 멀리 떨어진 곳을 번갈아 읽으면 계속 갈아끼워진다
-    for (let i = 0; i < 6; i++) await src.read(i * 512 * 1024, 100);
-    expect(inner.reads).toBe(6);
-    // 바로 직전 것은 아직 살아 있다
-    await src.read(5 * 512 * 1024 + 10, 100);
-    expect(inner.reads).toBe(6);
+    const src = new BufferedByteSource(inner, 256 * 1024, 3);
+    for (let i = 0; i < 12; i++) await src.read(i * 1024 * 1024, 100);
+    // 상한이 3이므로 아주 앞쪽은 이미 버려져 다시 읽어야 한다
+    const before = inner.reads;
+    await src.read(0, 100);
+    expect(inner.reads).toBeGreaterThan(before);
+    // 방금 읽은 곳은 남아 있다
+    const after = inner.reads;
+    await src.read(50, 100);
+    expect(inner.reads).toBe(after);
   });
 
   it('파일 끝을 넘겨 요청해도 있는 만큼만 준다', async () => {
@@ -77,12 +95,23 @@ describe('읽기 버퍼링', () => {
   it('버퍼를 비우면 다시 읽는다', async () => {
     const data = makeData(100_000);
     const inner = new CountingSource(data);
-    const src = new BufferedByteSource(inner, 64 * 1024, 2);
+    const src = new BufferedByteSource(inner, 64 * 1024, 4);
     await src.read(0, 100);
     await src.read(200, 100);
-    expect(inner.reads).toBe(1);
+    const readsBefore = inner.reads;
     src.clearBuffers();
     await src.read(0, 100);
-    expect(inner.reads).toBe(2);
+    expect(inner.reads).toBeGreaterThan(readsBefore);
+  });
+
+  it('미리 당겨온 구간은 기다리지 않고 바로 준다', async () => {
+    const data = makeData(1 << 20);
+    const inner = new CountingSource(data);
+    const src = new BufferedByteSource(inner, 256 * 1024, 8);
+    src.prefetch(0);
+    await new Promise((r) => setTimeout(r, 0));
+    await src.read(1000, 100);
+    expect(src.stats.hits).toBe(1);
+    expect(src.stats.misses).toBe(0);
   });
 });

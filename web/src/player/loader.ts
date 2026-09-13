@@ -48,6 +48,8 @@ export class FileSegmentLoader implements SegmentLoader {
       });
       // 파싱은 파일 전체를 훑으므로 그때 담긴 버퍼는 재생에 쓸모가 없다
       src.clearBuffers();
+      // 재생이 시작되자마자 기다리지 않도록 첫 구간을 미리 당겨 둔다
+      if (doc.packets.count > 0) src.prefetch(doc.packets.offset[0]);
       const loaded: LoadedSegment = { doc, src };
       this.cache.set(seg.id, loaded);
       while (this.cache.size > this.maxEntries) {
