@@ -4,7 +4,7 @@
  * 증거 추적성 원칙: 병합은 보기 편하게 만드는 것일 뿐이므로
  * 어느 시각이 어느 파일에서 왔는지 항상 되짚을 수 있어야 한다.
  */
-import type { Gap, Library } from '../core/library';
+import { isEventFolder, type Gap, type Library } from '../core/library';
 import type { SegmentInfo } from '../core/segment';
 import { StripLayout } from '../core/strip-layout';
 import { formatDuration, formatRecordedTime } from '../core/time';
@@ -53,8 +53,9 @@ export function renderStrip(track: HTMLElement, lib: Library): StripLayout | nul
     const width = (it.to - it.from) * 100;
     if (it.kind === 'segment') {
       const s = lib.segments[it.index];
-      parts.push(`<span class="strip-seg" data-seg="${it.index}" style="left:${left}%;width:${width}%" title="${escapeHtml(
-        `${s.name}\n${formatRecordedTime(s.startMs, false)} ~ ${formatRecordedTime(s.endMs, false)}`,
+      const evt = isEventFolder(s.folder);
+      parts.push(`<span class="strip-seg${evt ? ' is-event' : ''}" data-seg="${it.index}" style="left:${left}%;width:${width}%" title="${escapeHtml(
+        `${evt ? '[이벤트] ' : ''}${s.name}\n${formatRecordedTime(s.startMs, false)} ~ ${formatRecordedTime(s.endMs, false)}`,
       )}"></span>`);
     } else {
       const g = lib.gaps[it.index];
@@ -124,6 +125,25 @@ function gapSection(gaps: Gap[]): string {
       (덮어쓰기·삭제). 번호가 이어지는데도 비어 있으면 녹화가 끊겼거나 기록된 시각이 어긋난 것입니다.</p>`;
 }
 
+/**
+ * 이벤트(충격) 구간.
+ *
+ * 감사에서는 "언제 충격이 있었나"가 가장 먼저 보고 싶은 정보다.
+ * data의 사본이라 재생 줄기에서 뺀 것도 여기에는 반드시 남긴다.
+ */
+function eventSection(lib: Library): string {
+  const rows = lib.events.slice(0, 60).map((e) => `<div class="evt-row">
+    <span class="evt-time">${formatRecordedTime(e.fromMs, false).slice(11, 19)}</span>
+    <span class="evt-dur">${formatDuration((e.toMs - e.fromMs) / 1000)}</span>
+    <span class="evt-name">${escapeHtml(e.name)}</span>
+    <span class="evt-why">${e.inChain ? 'data에 없는 구간을 채움' : 'data와 같은 시각 — 표시로만'}</span>
+  </div>`).join('');
+
+  const filled = lib.events.filter((e) => e.inChain).length;
+  return `<p class="section-title">이벤트 ${num(lib.events.length)}건${filled > 0 ? ` · 이 중 ${num(filled)}건은 data에 없어 타임라인을 채웠습니다` : ''}</p>
+    <div class="evt-list">${rows}${lib.events.length > 60 ? `<p class="muted small">외 ${num(lib.events.length - 60)}건</p>` : ''}</div>`;
+}
+
 function segmentRow(s: SegmentInfo, index: number, activeIndex: number): string {
   const flags: string[] = [];
   if (s.timeSource !== 'header') flags.push(`시각출처 ${TIME_SOURCE_LABEL[s.timeSource]}`);
@@ -131,10 +151,11 @@ function segmentRow(s: SegmentInfo, index: number, activeIndex: number): string 
   if (Math.abs(s.headerShiftMs) >= 500) {
     flags.push(`헤더 시각 ${(s.headerShiftMs / 1000).toFixed(1)}초 어긋남`);
   }
+  const evt = isEventFolder(s.folder);
   return `<button class="seg-row${index === activeIndex ? ' is-active' : ''}" data-open="${index}" type="button">
     <span class="seg-time">${formatRecordedTime(s.startMs, false)}</span>
     <span class="seg-main">
-      <span class="seg-name">${escapeHtml(s.name)}</span>
+      <span class="seg-name">${evt ? '<span class="seg-evt">이벤트</span> ' : ''}${escapeHtml(s.name)}</span>
       <span class="seg-meta">${s.folder ? escapeHtml(s.folder) + ' · ' : ''}${formatDuration(s.durationMs / 1000)} · ${bytes(s.size)}${
         flags.length ? ' · ' + flags.join(' · ') : ''
       }</span>
@@ -166,7 +187,9 @@ export function renderSegments(
              </label>`,
            )
            .join('')}</div>
-         <p class="muted small">체크한 폴더의 파일만 타임라인에 넣습니다. 같은 시각을 담은 폴더를 함께 넣으면 구간이 겹칩니다.</p>`
+         <p class="muted small">기기는 한 번의 주행을 <strong>data(평상시)</strong>와
+           <strong>event(충격)</strong>에 나눠 씁니다. 둘 다 켜 두어야 주행이 온전합니다.
+           event가 data와 같은 시각을 담고 있으면 되풀이 재생되지 않도록 표시로만 남깁니다.</p>`
       : '';
 
   const invalidBox =
@@ -179,11 +202,13 @@ export function renderSegments(
       : '';
 
   const gapBox = lib.gaps.length > 0 ? gapSection(lib.gaps) : '';
+  const eventBox = lib.events.length > 0 ? eventSection(lib) : '';
 
   el.innerHTML = `
     ${folderBox}
     <p class="section-title">구간 ${num(lib.segments.length)}개</p>
     <div class="seg-list">${lib.segments.map((s, i) => segmentRow(s, i, activeIndex)).join('')}</div>
+    ${eventBox}
     ${gapBox}
     ${invalidBox}
   `;

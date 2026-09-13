@@ -172,14 +172,19 @@ describe('라이브러리 타임라인', () => {
     expect(lib.overlaps).toHaveLength(0);
   });
 
-  it('겹치는 구간을 찾아낸다 (event가 data와 겹치는 경우)', () => {
+  it('event가 data의 사본이면 되풀이 재생되지 않게 줄기에서 뺀다', () => {
     const lib = buildLibrary([
       seg('data.jdr', T(8, 0, 0), 60, 'data'),
       seg('event.jdr', T(8, 0, 20), 20, 'event'),
     ]);
-    expect(lib.overlaps).toHaveLength(1);
-    // 겹쳐도 실제로 덮인 시간은 60초다
+    // 같은 20초를 두 번 재생하면 안 된다
+    expect(lib.segments.map((s) => s.name)).toEqual(['data.jdr']);
+    expect(lib.duplicates.map((s) => s.name)).toEqual(['event.jdr']);
+    expect(lib.overlaps).toHaveLength(0);
     expect(lib.coveredMs).toBe(60_000);
+    // 뺐어도 "여기서 이벤트가 걸렸다"는 사실은 남는다
+    expect(lib.events).toHaveLength(1);
+    expect(lib.events[0].inChain).toBe(false);
   });
 
   it('빈 구간으로 이동하면 다음 구간 시작으로 건너뛴다', () => {
@@ -358,5 +363,77 @@ describe('헤더 시각과 실제 패킷이 어긋날 때', () => {
     const segB = await probeSegment({ src: b, name: 'b.jdr', path: 'data/b.jdr', size: b.size });
 
     expect(buildLibrary([segA, segB]).gaps).toEqual([]);
+  });
+});
+
+describe('data + event를 한 주행으로 묶기', () => {
+  const T0 = Date.UTC(2026, 8, 12, 8, 0, 0);
+  const f = (name: string, folder: string, startSec: number, durSec: number): SegmentInfo => ({
+    id: `${folder}/${name}`, name, path: `${folder}/${name}`, folder, size: 70 << 20,
+    startMs: T0 + startSec * 1000, endMs: T0 + (startSec + durSec) * 1000, durationMs: durSec * 1000,
+    packetCount: 4000, ch0Count: 1800, ch1Count: 1800, gpsCount: 60, sensorCount: 600,
+    blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
+  });
+
+  it('event가 data의 빈 자리를 대체한 기종에서는 그 자리를 채운다', () => {
+    // data에 00:60~00:120이 없고 그 시각이 event에 있다
+    const lib = buildLibrary([
+      f('a.jdr', 'data', 0, 60),
+      f('c.jdr', 'data', 120, 60),
+      f('e.jdr', 'event', 60, 60),
+    ]);
+    expect(lib.segments.map((s) => s.name)).toEqual(['a.jdr', 'e.jdr', 'c.jdr']);
+    expect(lib.gaps).toEqual([]);
+    expect(lib.duplicates).toEqual([]);
+    expect(lib.events[0].inChain).toBe(true);
+  });
+
+  it('event를 빼면 그 자리에 빈 구간이 생긴다 — 이게 끊겨 보이던 원인', () => {
+    const dataOnly = buildLibrary([f('a.jdr', 'data', 0, 60), f('c.jdr', 'data', 120, 60)]);
+    expect(dataOnly.gaps).toHaveLength(1);
+    expect(dataOnly.gaps[0].durationMs).toBe(60_000);
+  });
+
+  it('이벤트가 여러 건이어도 시각 순으로 줄기에 들어간다', () => {
+    const lib = buildLibrary([
+      f('a.jdr', 'data', 0, 60),
+      f('d.jdr', 'data', 240, 60),
+      f('e2.jdr', 'event', 120, 60),
+      f('e1.jdr', 'event', 60, 60),
+      f('e3.jdr', 'event', 180, 60),
+    ]);
+    expect(lib.segments.map((s) => s.name)).toEqual(['a.jdr', 'e1.jdr', 'e2.jdr', 'e3.jdr', 'd.jdr']);
+    expect(lib.gaps).toEqual([]);
+  });
+
+  it('일부만 겹치면 새로 채우는 쪽을 택한다', () => {
+    // event가 data 끝자락 5초와 겹치고 55초를 새로 채운다
+    const lib = buildLibrary([
+      f('a.jdr', 'data', 0, 60),
+      f('e.jdr', 'event', 55, 60),
+    ]);
+    expect(lib.segments.map((s) => s.name)).toEqual(['a.jdr', 'e.jdr']);
+    expect(lib.duplicates).toEqual([]);
+  });
+
+  it('event 폴더만 있으면 그게 곧 줄기다', () => {
+    const lib = buildLibrary([f('e1.jdr', 'event', 0, 60), f('e2.jdr', 'event', 60, 60)]);
+    expect(lib.segments).toHaveLength(2);
+    expect(lib.events.every((e) => e.inChain)).toBe(true);
+  });
+
+  it('event 폴더가 없으면 아무것도 달라지지 않는다', () => {
+    const lib = buildLibrary([f('a.jdr', 'data', 0, 60), f('b.jdr', 'data', 60, 60)]);
+    expect(lib.segments).toHaveLength(2);
+    expect(lib.events).toEqual([]);
+    expect(lib.duplicates).toEqual([]);
+  });
+
+  it('폴더 이름 대소문자를 가리지 않는다 (Event / EVENT)', () => {
+    for (const folder of ['Event', 'EVENT', 'event', 'REC/Event']) {
+      const lib = buildLibrary([f('a.jdr', 'data', 0, 60), f('e.jdr', folder, 20, 20)]);
+      expect(lib.events, folder).toHaveLength(1);
+      expect(lib.segments.map((s) => s.name), folder).toEqual(['a.jdr']);
+    }
   });
 });

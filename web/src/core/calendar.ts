@@ -6,6 +6,7 @@
  *
  * 하루 안에서도 운행 시간대가 나뉘므로(출근/퇴근) 공백이 크면 세션으로 더 쪼갠다.
  */
+import { isEventFolder } from './library';
 import type { SegmentInfo } from './segment';
 
 /** 이보다 긴 공백이면 다른 운행으로 본다 */
@@ -18,6 +19,8 @@ export interface DaySession {
   segments: SegmentInfo[];
   /** 실제 영상 길이 합계 */
   coveredMs: number;
+  /** 그중 event 폴더에서 온 것 — 평상시 파일과 따로 센다 */
+  eventCount: number;
 }
 
 export interface DayEntry {
@@ -33,6 +36,8 @@ export interface DayEntry {
   bytes: number;
   /** 실제 영상 길이 합계 (겹침 제외) */
   coveredMs: number;
+  /** event 폴더에서 온 파일 수 */
+  eventCount: number;
   sessions: DaySession[];
   /** 자정을 넘어 다음 날까지 이어지는 파일이 있는가 */
   crossesMidnight: boolean;
@@ -74,14 +79,17 @@ function splitSessions(segments: SegmentInfo[]): DaySession[] {
   let cur: DaySession | null = null;
   for (const s of segments) {
     if (!cur || s.startMs - cur.endMs > SESSION_GAP_MS) {
-      cur = { startMs: s.startMs, endMs: s.endMs, segments: [s], coveredMs: 0 };
+      cur = { startMs: s.startMs, endMs: s.endMs, segments: [s], coveredMs: 0, eventCount: 0 };
       sessions.push(cur);
     } else {
       cur.segments.push(s);
       cur.endMs = Math.max(cur.endMs, s.endMs);
     }
   }
-  for (const s of sessions) s.coveredMs = coveredDuration(s.segments);
+  for (const s of sessions) {
+    s.coveredMs = coveredDuration(s.segments);
+    s.eventCount = s.segments.filter((x) => isEventFolder(x.folder)).length;
+  }
   return sessions;
 }
 
@@ -121,6 +129,7 @@ export function buildCalendar(all: SegmentInfo[]): CalendarIndex {
         segments: [],
         bytes: 0,
         coveredMs: 0,
+        eventCount: 0,
         sessions: [],
         crossesMidnight: false,
       };
@@ -128,6 +137,7 @@ export function buildCalendar(all: SegmentInfo[]): CalendarIndex {
     }
     day.segments.push(s);
     day.bytes += s.size;
+    if (isEventFolder(s.folder)) day.eventCount++;
     day.startMs = Math.min(day.startMs, s.startMs);
     day.endMs = Math.max(day.endMs, s.endMs);
     if (dayKeyOf(s.endMs) !== key) day.crossesMidnight = true;

@@ -85,7 +85,8 @@ test('날짜를 누르면 운행 단위로 나눠 보여준다', async ({ page }
   await expect(page.locator('.session-row')).toHaveCount(2);
   await expect(page.locator('.session-row').nth(0)).toContainText('08:09');
   await expect(page.locator('.session-row').nth(1)).toContainText('22:24');
-  await expect(page.locator('[data-open-day]')).toContainText('6개');
+  // event 폴더 파일은 따로 센다 (data와 같은 시각을 겹쳐 쓰므로)
+  await expect(page.locator('[data-open-day]')).toContainText('6개 + 이벤트 1');
 });
 
 test('운행을 열면 그 구간만 타임라인에 들어간다', async ({ page }) => {
@@ -154,15 +155,31 @@ test('스캔은 전체 폴더가 아니라 선택한 구간만 돈다', async ({
   await expect(page.locator('#map path.leaflet-interactive').first()).toBeVisible();
 });
 
-test('폴더를 고르면 기본은 data 하나, event는 체크로 추가', async ({ page }) => {
+test('data와 event를 처음부터 함께 본다', async ({ page }) => {
   await openFolder(page);
+  // 기기는 한 주행을 두 폴더에 나눠 쓰므로 둘 다 켜져 있어야 한다
   await expect(page.locator('input[data-folder="data"]')).toBeChecked();
-  await expect(page.locator('input[data-folder="event"]')).not.toBeChecked();
+  await expect(page.locator('input[data-folder="event"]')).toBeChecked();
 
-  await page.locator('input[data-folder="event"]').check();
   await page.locator('[data-day="2026-09-08"]').click();
-  // event가 들어오면 오전 운행 파일이 하나 늘어난다
-  await expect(page.locator('.session-row').nth(0)).toContainText('4개');
+  await expect(page.locator('.session-row').nth(0)).toContainText('3개 + 이벤트 1');
+
+  // event를 빼면 평상시 파일만 남는다
+  await page.locator('input[data-folder="event"]').uncheck();
+  await page.locator('[data-day="2026-09-08"]').click();
+  await expect(page.locator('.session-row').nth(0)).toContainText('3개');
+});
+
+test('event가 data와 같은 시각이면 되풀이 재생하지 않는다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('.tab[data-tab="segments"]').click();
+  const panel = page.locator('#tab-segments');
+
+  // 픽스처의 event 파일은 data/00000460과 같은 시각이다
+  await expect(page.locator('#file-note')).toContainText('구간 1/3');
+  // 그래도 "여기서 이벤트가 걸렸다"는 사실은 남는다
+  await expect(panel).toContainText('이벤트 1건');
+  await expect(panel).toContainText('data와 같은 시각');
 });
 
 test('두 번째로 열면 캐시를 쓴다', async ({ page }) => {

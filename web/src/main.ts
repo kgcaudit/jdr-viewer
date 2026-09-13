@@ -375,8 +375,10 @@ function buildFolderStats(segments: SegmentInfo[]): FolderStat[] {
     cur.durationMs += s.durationMs;
     map.set(s.folder, cur);
   }
+  // 기기는 한 번의 주행을 data(평상시)와 event(충격)에 나눠 쓴다.
+  // 하나만 켜면 주행이 반쪽이 되므로 **전부 켜 두고** 시작한다.
   const list = [...map.values()].sort((a, b) => b.durationMs - a.durationMs);
-  if (list.length > 0) list[0].selected = true;
+  for (const f of list) f.selected = true;
   return list;
 }
 
@@ -665,11 +667,11 @@ function renderSessionChips(): void {
   const hhmm = (ms: number) => formatRecordedTime(ms, false).slice(11, 16);
   const chips = [
     `<button class="chip-btn${s.sessionIndex < 0 ? ' is-active' : ''}" type="button" data-session="-1">
-      ${formatShortDate(s.dayKey)} 전체<span class="chip-sub">${num(day.segments.length)}개</span>
+      ${formatShortDate(s.dayKey)} 전체<span class="chip-sub">${num(day.segments.length - day.eventCount)}개${day.eventCount > 0 ? ` +이벤트 ${num(day.eventCount)}` : ''}</span>
     </button>`,
     ...day.sessions.map(
       (ses, i) => `<button class="chip-btn${s.sessionIndex === i ? ' is-active' : ''}" type="button" data-session="${i}">
-        ${hhmm(ses.startMs)}~${hhmm(ses.endMs)}<span class="chip-sub">${num(ses.segments.length)}개</span>
+        ${hhmm(ses.startMs)}~${hhmm(ses.endMs)}<span class="chip-sub">${num(ses.segments.length - ses.eventCount)}개${ses.eventCount > 0 ? ` +이벤트 ${num(ses.eventCount)}` : ''}</span>
       </button>`,
     ),
   ];

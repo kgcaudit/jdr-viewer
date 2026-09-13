@@ -67,6 +67,15 @@ function loadSection(stats: LoadStats): string {
     <p class="muted small" style="margin:8px 0 0">${hint}</p>`;
 }
 
+/**
+ * 파일 수 표기. event 폴더 것은 따로 센다 —
+ * 기기가 같은 시각을 data와 event에 겹쳐 쓰기도 해서, 합쳐 세면 부풀려진다.
+ */
+function countLabel(total: number, eventCount: number): string {
+  const normal = total - eventCount;
+  return eventCount > 0 ? `${num(normal)}개 + 이벤트 ${num(eventCount)}` : `${num(total)}개`;
+}
+
 function hhmm(ms: number): string {
   return formatRecordedTime(ms, false).slice(11, 16);
 }
@@ -82,10 +91,10 @@ function dayCell(cell: { key: string; day: number; inMonth: boolean }, index: Ca
   const height = Math.max(8, Math.round(ratio * 100));
   return `<button class="cal-cell is-on${cell.key === selected ? ' is-selected' : ''}" type="button"
       data-day="${cell.key}"
-      title="${escapeHtml(`${cell.key} · ${num(day.segments.length)}개 · ${formatDuration(day.coveredMs / 1000)} · ${bytes(day.bytes)}`)}">
+      title="${escapeHtml(`${cell.key} · ${countLabel(day.segments.length, day.eventCount)} · ${formatDuration(day.coveredMs / 1000)} · ${bytes(day.bytes)}`)}">
     <span class="cal-day">${cell.day}</span>
     <span class="cal-bar" style="height:${height}%"></span>
-    <span class="cal-meta">${num(day.segments.length)}개<br>${formatDuration(day.coveredMs / 1000).replace(/^(\d+):/, '$1시간 ')}</span>
+    <span class="cal-meta">${num(day.segments.length - day.eventCount)}개${day.eventCount > 0 ? '<span class="cal-evt">+' + num(day.eventCount) + '</span>' : ''}<br>${formatDuration(day.coveredMs / 1000).replace(/^(\d+):/, '$1시간 ')}</span>
   </button>`;
 }
 
@@ -95,7 +104,7 @@ function sessionList(day: DayEntry): string {
     .map(
       (s, i) => `<button class="session-row" type="button" data-session="${i}">
         <span class="session-time">${hhmm(s.startMs)} ~ ${hhmm(s.endMs)}</span>
-        <span class="session-meta">${num(s.segments.length)}개 · ${formatDuration(s.coveredMs / 1000)}</span>
+        <span class="session-meta">${countLabel(s.segments.length, s.eventCount)} · ${formatDuration(s.coveredMs / 1000)}</span>
       </button>`,
     )
     .join('');
@@ -105,7 +114,7 @@ function sessionList(day: DayEntry): string {
     }</p>
     <div class="session-list">${rows}</div>
     <button class="btn btn-primary cal-open-day" type="button" data-open-day="${day.key}">
-      이 날짜 전체 열기 (${num(day.segments.length)}개 · ${formatDuration(day.coveredMs / 1000)})
+      이 날짜 전체 열기 (${countLabel(day.segments.length, day.eventCount)} · ${formatDuration(day.coveredMs / 1000)})
     </button>`;
 }
 

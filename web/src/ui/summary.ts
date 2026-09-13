@@ -32,6 +32,7 @@ function librarySection(lib: Library): string {
       <dt>벽시계 길이</dt><dd>${formatDuration(lib.spanMs / 1000)}</dd>
       <dt>실제 영상</dt><dd>${formatDuration(lib.coveredMs / 1000)} <span class="muted">(${coverage.toFixed(1)}%)</span></dd>
       <dt>빈 구간</dt><dd>${gapSummary(lib)}</dd>
+      <dt>이벤트</dt><dd>${lib.events.length === 0 ? '없음' : `${num(lib.events.length)}건`}</dd>
       <dt>전체 크기</dt><dd>${bytes(lib.totalBytes)}</dd>
     </dl>
     ${overlapNote}`;

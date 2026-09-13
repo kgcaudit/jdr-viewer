@@ -3,8 +3,26 @@
  *
  * 병합은 "이어 붙이기"이지 원본을 바꾸는 게 아니다.
  * 어느 시각이 어느 파일에서 왔는지 항상 되짚을 수 있어야 한다.
+ *
+ * 기기는 한 번의 주행을 **두 폴더에 나눠 쓴다.**
+ *   data  — 평상시 순환 녹화
+ *   event — 충격 등으로 이벤트가 걸린 구간
+ *
+ * 그러므로 둘을 함께 놓아야 주행 하나가 온전해진다.
+ * 다만 기종에 따라 event가 data의 **사본**이기도 하고 **대체**이기도 하다.
+ *   사본이면 → 같은 시각이 두 번 들어와 재생이 되풀이된다
+ *   대체면  → data만 보면 그 자리에 없는 빈 구간이 생긴다
+ *
+ * 그래서 **data를 기본 줄기로 삼고, event는 비어 있는 자리만 채운다.**
+ * 채우지 않은 event 파일도 버리지 않는다 — "여기서 이벤트가 걸렸다"는
+ * 사실 자체가 감사에서 가장 중요한 정보이므로 표시로 남긴다.
  */
 import type { SegmentInfo } from './segment';
+
+/** 이벤트(충격) 폴더인가. 기기마다 Event/event/EVENT로 제각각이다. */
+export function isEventFolder(folder: string): boolean {
+  return /event/i.test(folder);
+}
 
 export interface Gap {
   fromMs: number;
@@ -32,6 +50,16 @@ export interface Overlap {
   toMs: number;
 }
 
+/** 이벤트가 걸린 구간 — 재생 줄기에 들어갔든 아니든 표시로 남긴다 */
+export interface EventMark {
+  fromMs: number;
+  toMs: number;
+  name: string;
+  path: string;
+  /** 재생 줄기에 들어갔는가 (data에 없던 자리를 채운 경우) */
+  inChain: boolean;
+}
+
 export interface Library {
   /** 시작 시각 순으로 정렬된 유효 세그먼트 */
   segments: SegmentInfo[];
@@ -45,6 +73,10 @@ export interface Library {
   coveredMs: number;
   gaps: Gap[];
   overlaps: Overlap[];
+  /** 이벤트 구간 (event 폴더) */
+  events: EventMark[];
+  /** 이미 덮인 시각이라 재생 줄기에서 뺀 파일 — 목록에는 남긴다 */
+  duplicates: SegmentInfo[];
   totalBytes: number;
 }
 
@@ -63,16 +95,83 @@ export function fileNumberOf(name: string): number {
  */
 export const OVERLAP_THRESHOLD_MS = 250;
 
+/** 이벤트 파일이 이만큼은 새로 채워야 재생 줄기에 넣는다 */
+const EVENT_FILL_MIN_MS = 2000;
+
+/**
+ * data를 줄기로 삼고 event는 빈 자리만 채운다.
+ *
+ * event가 data의 사본이면 같은 시각이 두 번 재생되므로 줄기에서 빼고,
+ * data를 대체한 것이면 그 자리를 채워 주행이 끊기지 않게 한다.
+ * 어느 쪽이든 이벤트가 걸린 시각은 `events`에 남는다.
+ */
+function buildChain(valid: SegmentInfo[]): {
+  chain: SegmentInfo[]; duplicates: SegmentInfo[]; events: EventMark[];
+} {
+  const byTime = (a: SegmentInfo, b: SegmentInfo) =>
+    a.startMs - b.startMs || a.name.localeCompare(b.name);
+  const base = valid.filter((s) => !isEventFolder(s.folder)).sort(byTime);
+  const evt = valid.filter((s) => isEventFolder(s.folder)).sort(byTime);
+  // event 폴더뿐이면 그게 곧 줄기다
+  if (base.length === 0) {
+    return {
+      chain: evt,
+      duplicates: [],
+      events: evt.map((s) => ({ fromMs: s.startMs, toMs: s.endMs, name: s.name, path: s.path, inChain: true })),
+    };
+  }
+
+  /** 이미 덮인 구간들 (시각 순, 겹치지 않음) */
+  const covered: { from: number; to: number }[] = [];
+  const addCover = (from: number, to: number): void => {
+    covered.push({ from, to });
+    covered.sort((a, b) => a.from - b.from);
+    for (let i = 1; i < covered.length; i++) {
+      if (covered[i].from <= covered[i - 1].to) {
+        covered[i - 1].to = Math.max(covered[i - 1].to, covered[i].to);
+        covered.splice(i--, 1);
+      }
+    }
+  };
+  const uncoveredMs = (from: number, to: number): number => {
+    let left = to - from;
+    for (const c of covered) {
+      const lo = Math.max(from, c.from);
+      const hi = Math.min(to, c.to);
+      if (hi > lo) left -= hi - lo;
+    }
+    return Math.max(0, left);
+  };
+
+  for (const s of base) addCover(s.startMs, s.endMs);
+
+  const chain = [...base];
+  const duplicates: SegmentInfo[] = [];
+  const events: EventMark[] = [];
+  for (const s of evt) {
+    const fills = uncoveredMs(s.startMs, s.endMs) >= EVENT_FILL_MIN_MS;
+    if (fills) {
+      chain.push(s);
+      addCover(s.startMs, s.endMs);
+    } else {
+      duplicates.push(s);
+    }
+    events.push({ fromMs: s.startMs, toMs: s.endMs, name: s.name, path: s.path, inChain: fills });
+  }
+  chain.sort(byTime);
+  return { chain, duplicates, events };
+}
+
 export function buildLibrary(all: SegmentInfo[]): Library {
   const invalid = all.filter((s) => s.error);
-  const segments = all
-    .filter((s) => !s.error && Number.isFinite(s.startMs))
-    .sort((a, b) => a.startMs - b.startMs || a.name.localeCompare(b.name));
+  const valid = all.filter((s) => !s.error && Number.isFinite(s.startMs));
+  const { chain: segments, duplicates, events } = buildChain(valid);
 
   if (segments.length === 0) {
     return {
       segments: [], invalid, startMs: NaN, endMs: NaN, spanMs: 0, coveredMs: 0,
-      gaps: [], overlaps: [], totalBytes: all.reduce((s, x) => s + x.size, 0),
+      gaps: [], overlaps: [], events: [], duplicates: [],
+      totalBytes: all.reduce((s, x) => s + x.size, 0),
     };
   }
 
@@ -114,7 +213,7 @@ export function buildLibrary(all: SegmentInfo[]): Library {
     segments, invalid, startMs, endMs,
     spanMs: endMs - startMs,
     coveredMs,
-    gaps, overlaps,
+    gaps, overlaps, events, duplicates,
     totalBytes: all.reduce((s, x) => s + x.size, 0),
   };
 }
