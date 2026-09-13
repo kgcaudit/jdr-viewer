@@ -100,3 +100,24 @@ export class Sha256 {
     hh[6] = (hh[6] + g) >>> 0; hh[7] = (hh[7] + h) >>> 0;
   }
 }
+
+/**
+ * 파일 전체를 청크로 읽어 해시를 낸다.
+ *
+ * 이건 **내보내기가 아니라 점검**이다. 원본성 판단의 기준이므로
+ * 저장 기능과 별개로 남는다. 폴더 모드에서는 파일 전체를 읽어야 해서
+ * 가장 비싸므로 자동으로 하지 않고 누를 때만 계산한다.
+ */
+export async function hashSource(
+  src: { size: number; read(offset: number, length: number): Promise<Uint8Array> },
+  onProgress?: (done: number, total: number) => void,
+): Promise<string> {
+  const hash = new Sha256();
+  const CHUNK = 8 << 20;
+  for (let pos = 0; pos < src.size; pos += CHUNK) {
+    hash.update(await src.read(pos, CHUNK));
+    onProgress?.(pos, src.size);
+  }
+  onProgress?.(src.size, src.size);
+  return hash.digestHex();
+}

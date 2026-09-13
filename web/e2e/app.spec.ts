@@ -148,14 +148,15 @@ test('지도와 센서 차트를 그린다', async ({ page }) => {
   await expect(page.locator('#chart-gsensor .uplot')).toBeVisible();
 });
 
-test('GPS CSV를 내보낸다', async ({ page }) => {
+test('GPS CSV를 구간 단위로 내보낸다', async ({ page }) => {
   await loadSample(page);
   await page.locator('.tab[data-tab="export"]').click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.locator('[data-export="gps"]').click(),
+    page.locator('[data-range="gps"]').click(),
   ]);
-  expect(download.suggestedFilename()).toBe('e2e_sample_gps.csv');
+  // 파일 단위가 아니라 시각 규칙 파일명이다
+  expect(download.suggestedFilename()).toMatch(/^\d{6}_\d{6}-\d{6}_GPS\.csv$/);
 
   const stream = await download.createReadStream();
   const chunks: Buffer[] = [];
@@ -163,10 +164,10 @@ test('GPS CSV를 내보낸다', async ({ page }) => {
   const csv = Buffer.concat(chunks).toString('utf8');
 
   expect(csv).toContain('latitude_deg');
-  expect(csv.trim().split('\r\n')).toHaveLength(16); // 헤더 + 15행
+  // 여러 파일을 합칠 수 있으므로 어느 원본에서 왔는지가 함께 들어간다
+  expect(csv).toContain('source_file');
   // NMEA 3733.5678 → 37.559463°
   expect(csv).toContain('37.55946');
-  expect(csv).toContain('126.96872');
 });
 
 test('작은 화면에서도 레이아웃이 무너지지 않는다', async ({ page }) => {

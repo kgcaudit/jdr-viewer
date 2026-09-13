@@ -12,6 +12,11 @@ export interface SummaryInput {
   segment: SegmentInfo | null;
   /** 폴더 모드인가 (세그먼트가 여러 개) */
   merged: boolean;
+  /**
+   * SHA-256을 계산한다. 원본성 판단의 기준이라 저장 기능과 별개로 남는다.
+   * 없으면 버튼을 내지 않는다.
+   */
+  onComputeHash?: (report: (done: number, total: number) => void) => Promise<void>;
 }
 
 /** 폴더 전체 요약 — 병합 타임라인이 어떤 모습인지 */
@@ -116,7 +121,7 @@ export function renderSummary(el: HTMLElement, input: SummaryInput): void {
     )
     .join('');
 
-  el.innerHTML = `
+  const html = `
     ${merged ? librarySection(lib) : ''}
     <p class="section-title">${merged ? '현재 구간 파일' : '파일'}</p>
     <dl class="kv">
@@ -124,8 +129,9 @@ export function renderSummary(el: HTMLElement, input: SummaryInput): void {
       <dt>크기</dt><dd>${bytes(doc.fileSize)} <span class="muted">(${num(doc.fileSize)} bytes)</span></dd>
       <dt>SHA-256</dt><dd style="font-size:12px">${
         doc.sha256
-          ? escapeHtml(doc.sha256)
-          : '<span class="muted">폴더 모드에서는 생략합니다 — 파일 전체를 읽어야 해서 가장 비쌉니다. 내보내기 탭에서 계산할 수 있습니다.</span>'
+          ? `<code class="hash">${escapeHtml(doc.sha256)}</code>`
+          : `<span class="muted">파일 전체를 읽어야 해서 자동으로 계산하지 않습니다.</span>
+             ${input.onComputeHash ? '<button class="btn btn-sm" type="button" id="btn-hash" style="margin-top:6px">SHA-256 계산</button>' : ''}`
       }</dd>
       <dt>인덱스 대조</dt><dd>${integrityLine(doc)}</dd>
     </dl>
@@ -167,4 +173,18 @@ export function renderSummary(el: HTMLElement, input: SummaryInput): void {
       원본성 판단의 기준은 <strong>원본 JDR 파일과 위 SHA-256</strong>입니다.
     </div>
   `;
+
+  el.innerHTML = html;
+
+  const hashBtn = el.querySelector<HTMLButtonElement>('#btn-hash');
+  const compute = input.onComputeHash;
+  hashBtn?.addEventListener('click', () => {
+    hashBtn.disabled = true;
+    void compute?.((done, total) => {
+      hashBtn.textContent = total > 0 ? `${Math.round((done / total) * 100)}%` : '계산 중…';
+    }).catch(() => {
+      hashBtn.disabled = false;
+      hashBtn.textContent = 'SHA-256 계산';
+    });
+  });
 }

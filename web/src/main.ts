@@ -25,9 +25,9 @@ import { hasWebCodecs } from './player/index';
 import type { PlayerStatus } from './player/player';
 import { renderCalendar, type LoadStats } from './ui/calendar';
 import { renderSummary } from './ui/summary';
+import { hashSource } from './core/sha256';
 import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
-import { renderExports } from './ui/exports';
 import { renderRangeExport } from './ui/range-export';
 import { buildRange, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange } from './core/range-export';
 import {
@@ -576,10 +576,23 @@ function onSegmentChange(index: number, status: PlayerStatus | null): void {
   const doc = s.player.currentDoc;
   const seg = s.lib.segments[index] ?? null;
 
-  renderSummary($('tab-summary'), { doc, lib: s.lib, segment: seg, merged: s.merged });
-  if (doc && s.player.currentSource) {
-    renderExports($('file-export'), doc, s.player.currentSource, toast, s.merged ? seg?.name : undefined);
-  }
+  const src = s.player.currentSource;
+  renderSummary($('tab-summary'), {
+    doc, lib: s.lib, segment: seg, merged: s.merged,
+    // 해시는 저장이 아니라 점검이다. 내보내기에서 빠졌어도 여기 남는다.
+    onComputeHash: doc && src && !doc.sha256
+      ? async (report) => {
+          try {
+            doc.sha256 = await hashSource(src, report);
+            toast('SHA-256 계산 완료');
+            onSegmentChange(index, status);
+          } catch (e) {
+            toast(`해시 계산 실패: ${e instanceof Error ? e.message : String(e)}`);
+            throw e;
+          }
+        }
+      : undefined,
+  });
   if (s.merged) {
     markLoadingSegment($('strip-track'), -1);
     markActiveSegment($('strip-track'), index);

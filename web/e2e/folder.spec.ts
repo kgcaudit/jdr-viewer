@@ -748,11 +748,31 @@ test('끝이 시작보다 빠르면 내보내기를 막는다', async ({ page })
   await expect(panel.locator('[data-range="front"]')).toBeDisabled();
 });
 
-test('구간 내보내기와 별개로 파일 단위 내보내기도 남아 있다', async ({ page }) => {
+test('내보내기는 구간 단위 하나뿐이다', async ({ page }) => {
   await openMorningSession(page);
   await page.locator('.tab[data-tab="export"]').click();
-  await expect(page.locator('#file-export')).toContainText('현재 재생 중인 구간');
-  await expect(page.locator('#file-export')).toContainText('SHA-256');
+
+  await expect(page.locator('#range-export')).toContainText('구간 지정');
+  // 파일 하나를 통째로 저장하는 항목은 없다
+  expect(await page.locator('#file-export').count()).toBe(0);
+  expect(await page.locator('[data-export]').count()).toBe(0);
+
+  // 저장 항목은 전부 시각 규칙 파일명을 달고 있다
+  const names = await page.locator('#range-export .export-item span').first().textContent();
+  expect(names).toMatch(/^\d{6}_\d{6}-\d{6}_/);
+});
+
+test('SHA-256은 저장이 아니라 점검이라 요약 탭에 남는다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('.tab[data-tab="summary"]').click();
+  const summary = page.locator('#tab-summary');
+  await expect(summary).toContainText('SHA-256');
+
+  // 폴더 모드에서는 비싸서 자동 계산하지 않는다 — 누르면 계산한다
+  const btn = summary.locator('#btn-hash');
+  await expect(btn).toBeVisible();
+  await btn.click();
+  await expect(summary.locator('.hash')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
 });
 
 test('날짜 칩이 연도까지 보여 준다', async ({ page }) => {

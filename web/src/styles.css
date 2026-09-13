@@ -544,3 +544,4 @@ body {
 @media (hover: hover) and (pointer: fine) {
   .wake-chip:hover:not(:disabled) { background: var(--surface-2); }
 }
+.hash { font-size: 11px; word-break: break-all; }

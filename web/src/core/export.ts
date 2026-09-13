@@ -1,8 +1,14 @@
-/** 추출물 생성 — 원본 Python 도구의 출력물과 같은 형식을 목표로 한다. */
+/**
+ * 추출물 생성 조각들.
+ *
+ * 파일 하나를 통째로 저장하는 기능은 없앴다 — 원본이 50초짜리라 그 단위로
+ * 뽑아야 쓸 데가 없었다. 지금은 `range-export.ts`가 **시간 구간**으로 뽑고,
+ * 여기에는 그 재료(조각 모으기·WAV 머리글)와 CSV 생성기만 남는다.
+ */
 import type { ByteSource, Bytes } from './byte-source';
 import type { JdrDocument } from './types';
 import { PACKET_HEADER_SIZE, GSENSOR_SCALE, AUDIO_SAMPLE_RATE } from './parser';
-import { TagKind, tagChannel, tagKind, tagString } from './tags';
+import { TagKind, tagKind } from './tags';
 import { formatRecordedTime } from './time';
 
 /** Excel에서 한글이 깨지지 않도록 BOM을 붙인다 (원본 도구도 utf-8-sig를 씀). */
@@ -41,57 +47,6 @@ export function buildGsensorCsv(doc: JdrDocument): string {
     ]);
   }
   return toCsv(['packet_time', 'x_raw', 'y_raw', 'z_raw', 'x_g_est', 'y_g_est', 'z_g_est'], rows);
-}
-
-export function buildPacketsCsv(doc: JdrDocument): string {
-  const p = doc.packets;
-  const rows: (string | number)[][] = [];
-  for (let i = 0; i < p.count; i++) {
-    rows.push([
-      p.blockNo[i], i, '0x' + p.offset[i].toString(16).toUpperCase(),
-      tagString(p.tag[i]), p.size[i], p.aux[i], formatRecordedTime(p.timeMs[i]),
-    ]);
-  }
-  return toCsv(['block_no', 'packet_no', 'offset_hex', 'tag', 'payload_size', 'aux', 'timestamp'], rows);
-}
-
-export function buildSummaryJson(doc: JdrDocument): string {
-  return JSON.stringify(
-    {
-      input_file: doc.fileName,
-      input_size_bytes: doc.fileSize,
-      sha256: doc.sha256,
-      jdr_format_status: '역분석 기반. 제조사 공식 사양이 아니며 일부 값은 추정치임',
-      generated_by: 'JDR Viewer (web)',
-      jeb_blocks: doc.blocks.map((b) => ({
-        ...b,
-        startTime: formatRecordedTime(b.startTimeMs),
-        endTime: formatRecordedTime(b.endTimeMs),
-      })),
-      valid_packets: doc.packets.count,
-      index_mismatches: doc.indexMismatches,
-      packet_tag_counts: doc.tagCounts,
-      first_packet_time: formatRecordedTime(doc.firstTimeMs),
-      last_packet_time: formatRecordedTime(doc.lastTimeMs),
-      duration_seconds: doc.durationSec,
-      video: doc.video.map((v) => ({
-        channel: v.channel,
-        frames: v.frameCount,
-        keyframes: v.keyframeCount,
-        estimated_fps: v.fps,
-        codec: v.bitstream?.codec ?? null,
-        width: v.bitstream?.width ?? null,
-        height: v.bitstream?.height ?? null,
-        keyframe_contains_parameter_sets: v.bitstream ? v.bitstream.hasSps && v.bitstream.hasPps : null,
-      })),
-      audio: doc.audio,
-      gps_rows: doc.gps.length,
-      gsensor_rows: doc.gsensor.count,
-      gsensor_scale_note: `raw / ${GSENSOR_SCALE} ≈ g (추정)`,
-    },
-    null,
-    2,
-  );
 }
 
 /**
@@ -133,39 +88,6 @@ export class BlobCollector {
 
 /** 오래 도는 작업 중 화면이 멈추지 않도록 양보한다 */
 export const yieldToUi = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
-
-/** 채널별 H.264 Annex-B elementary stream을 그대로 이어붙인다. */
-export async function extractH264(
-  src: ByteSource, doc: JdrDocument, channel: number,
-  onProgress?: (done: number, total: number) => void,
-): Promise<Blob> {
-  const p = doc.packets;
-  const indices: number[] = [];
-  let totalBytes = 0;
-  for (let i = 0; i < p.count; i++) {
-    if (tagKind(p.tag[i]) === TagKind.Video && tagChannel(p.tag[i]) === channel) {
-      indices.push(i);
-      totalBytes += p.size[i];
-    }
-  }
-
-  const out = new BlobCollector();
-  let done = 0;
-  let lastYield = performance.now();
-  for (let n = 0; n < indices.length; n++) {
-    const i = indices[n];
-    out.push(await src.read(p.offset[i] + PACKET_HEADER_SIZE, p.size[i]));
-    done += p.size[i];
-    // 시간 기준으로 양보한다 — 프레임 수로 나누면 기기에 따라 너무 잦거나 뜸해진다
-    if (performance.now() - lastYield > 80) {
-      onProgress?.(done, totalBytes);
-      await yieldToUi();
-      lastYield = performance.now();
-    }
-  }
-  onProgress?.(totalBytes, totalBytes);
-  return out.finish(undefined, 'video/h264');
-}
 
 export function wavHeader(dataBytes: number, sampleRate: number, channels = 1, bits = 16): Bytes {
   const buf = new ArrayBuffer(44);
