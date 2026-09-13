@@ -178,3 +178,100 @@ test('작은 화면에서도 레이아웃이 무너지지 않는다', async ({ p
   expect(overflow, '가로 스크롤이 생기면 안 된다').toBeLessThanOrEqual(1);
   await expect(page.locator('#btn-play')).toBeVisible();
 });
+
+/** 예약된 오디오 버퍼를 세는 계측기 */
+async function instrumentAudio(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __audio: { started: number; seconds: number } };
+    w.__audio = { started: 0, seconds: 0 };
+    const orig = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (this: AudioBufferSourceNode, ...args: unknown[]) {
+      w.__audio.started++;
+      if (this.buffer) w.__audio.seconds += this.buffer.duration;
+      return (orig as (...a: unknown[]) => void).apply(this, args);
+    } as typeof orig;
+  });
+}
+
+const audioStats = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __audio: { started: number; seconds: number } }).__audio);
+
+test('1배속에서 음성이 예약된다', async ({ page }) => {
+  await instrumentAudio(page);
+  await loadSample(page);
+  await page.locator('#btn-play').click();
+  await page.waitForTimeout(1200);
+  const a = await audioStats(page);
+  expect(a.started, '오디오 버퍼가 하나도 예약되지 않았다').toBeGreaterThan(0);
+  // 1배속이면 500ms 조각이 그대로 500ms로 나간다
+  expect(a.seconds / a.started).toBeGreaterThan(0.4);
+  expect(a.seconds / a.started).toBeLessThan(0.6);
+});
+
+test('배속에서도 음성이 나온다 — 조각이 배속만큼 짧아진다', async ({ page }) => {
+  await instrumentAudio(page);
+  await loadSample(page);
+  await page.selectOption('#speed', '2');
+  await page.locator('#btn-play').click();
+  await page.waitForTimeout(1200);
+
+  const a = await audioStats(page);
+  expect(a.started, '배속에서 음성이 끊겼다').toBeGreaterThan(0);
+  // 미디어 500ms를 2배속으로 내보내면 실제 길이는 250ms다.
+  // (표본을 다시 뽑는 방식이었다면 길이가 500ms 그대로고 음높이가 올라갔을 것)
+  expect(a.seconds / a.started).toBeGreaterThan(0.2);
+  expect(a.seconds / a.started).toBeLessThan(0.3);
+});
+
+test('0.5배속에서도 음성이 나온다', async ({ page }) => {
+  await instrumentAudio(page);
+  await loadSample(page);
+  await page.selectOption('#speed', '0.5');
+  await page.locator('#btn-play').click();
+  await page.waitForTimeout(1200);
+
+  const a = await audioStats(page);
+  expect(a.started).toBeGreaterThan(0);
+  expect(a.seconds / a.started).toBeGreaterThan(0.8);
+});
+
+test('배속을 바꿔도 재생이 멈추지 않는다', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await loadSample(page);
+
+  // 샘플이 1.5초뿐이라 배속마다 처음으로 되감고 확인한다
+  for (const v of ['2', '0.5', '4', '1']) {
+    await page.locator('#seek').fill('0');
+    if ((await page.locator('#btn-play').textContent()) === '▶') {
+      await page.locator('#btn-play').click();
+    }
+    await page.selectOption('#speed', v);
+    await page.waitForTimeout(150);
+    await expect(page.locator('#btn-play'), `${v}배속에서 재생이 멈췄다`).toHaveText('❚❚');
+  }
+  expect(errors).toEqual([]);
+});
+
+test('배속에서도 영상 시간이 오디오를 따라간다', async ({ page }) => {
+  await loadSample(page);
+  const posOf = () =>
+    page.locator('#seek').evaluate((el) => Number((el as HTMLInputElement).value));
+
+  await page.locator('#seek').fill('0');
+  await page.locator('#btn-play').click();
+  await page.waitForTimeout(500);
+  const at1x = await posOf();
+  await page.locator('#btn-play').click();
+
+  await page.selectOption('#speed', '2');
+  await page.locator('#seek').fill('0');
+  await page.locator('#btn-play').click();
+  await page.waitForTimeout(500);
+  const at2x = await posOf();
+
+  // 2배속이면 같은 시간에 대략 두 배를 지나가야 한다.
+  // (배속에서 오디오 클럭이 죽어 벽시계로 떨어지면 이 비율이 깨진다)
+  expect(at1x).toBeGreaterThan(100);
+  expect(at2x / at1x).toBeGreaterThan(1.4);
+});

@@ -88,14 +88,13 @@ export class JdrPlayer {
     this.playing = true;
     this.wallOrigin = performance.now();
     this.posOrigin = this.positionMs;
-    // 배속 재생에서는 음성을 끈다 (피치가 틀어지는 것보다 무음이 낫다).
+    // 배속에서도 음성을 낸다. 음높이는 시간 신축으로 지킨다(core/timestretch.ts).
     // 오디오 장치가 없거나 8kHz를 못 열어도 영상 재생은 계속되어야 한다.
-    if (this.speed === 1) {
-      try {
-        await this.audio.start(this.positionMs);
-      } catch (e) {
-        this.onError(`음성 재생 실패 (영상은 계속 재생됩니다): ${e instanceof Error ? e.message : String(e)}`);
-      }
+    try {
+      this.audio.setSpeed(this.speed);
+      await this.audio.start(this.positionMs);
+    } catch (e) {
+      this.onError(`음성 재생 실패 (영상은 계속 재생됩니다): ${e instanceof Error ? e.message : String(e)}`);
     }
     this.onPlayingChange?.(true);
     this.loop();
@@ -123,9 +122,12 @@ export class JdrPlayer {
   }
 
   setSpeed(speed: number): void {
+    if (speed === this.speed) return;
     const wasPlaying = this.playing;
     if (wasPlaying) this.pause();
     this.speed = speed;
+    // 예약해 둔 소리는 옛 배속이라 못 쓴다. play()가 새로 잡는다.
+    this.audio.setSpeed(speed);
     if (wasPlaying) void this.play();
   }
 
@@ -166,7 +168,7 @@ export class JdrPlayer {
 
   private loop = (): void => {
     if (!this.playing) return;
-    const audioMs = this.speed === 1 ? this.audio.currentMs() : null;
+    const audioMs = this.audio.currentMs();
     // 오디오가 있으면 그것이 마스터 클럭. 없으면 벽시계.
     this.positionMs =
       audioMs !== null
