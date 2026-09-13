@@ -15,9 +15,27 @@ npm run dev        # http://127.0.0.1:5173
 |---|---|
 | `npm run dev` | 개발 서버 |
 | `npm run build` | 정적 빌드 (`dist/`) — 아무 정적 호스팅에나 올리면 됨 |
+| `npm run build:single` | **단일 HTML 빌드** (`dist-single/index.html`) — 파일 하나로 끝, 더블클릭해서 열면 됨 |
+| `npm run make-sample -- out.jdr --mb 150` | 테스트용 합성 JDR 생성 |
 | `npm run typecheck` | 타입 검사 |
 | `npm test` | 파서 유닛 테스트 (vitest, 22개) |
 | `npm run test:e2e` | 브라우저 E2E 테스트 (Playwright, 8개) |
+
+## 단일 HTML로 쓰기
+
+`npm run build:single` 로 만든 `dist-single/index.html` 하나면 됩니다.
+JS·CSS·워커·이미지가 전부 안에 들어 있어 **더블클릭해서 열면 바로 동작**합니다.
+
+`file://`로 직접 열면 브라우저가 Web Worker 생성을 막기 때문에
+**메인 스레드 파싱으로 자동 폴백**합니다. 150MB 파일로 측정한 결과 속도 차이는 거의 없습니다
+(파싱이 CPU가 아니라 파일 읽기에 묶여 있기 때문).
+
+| 방식 | 150MB 파싱 | JS 힙 |
+|---|---|---|
+| 로컬 서버 (워커) | 4.9초 | 7MB |
+| `file://` (메인 스레드) | 4.9초 | 48MB |
+
+파일 전체를 메모리에 올리지 않으므로 힙 사용량이 파일 크기와 무관합니다.
 
 ## 구현된 기능
 

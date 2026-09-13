@@ -10,7 +10,7 @@ import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
 import { renderExports } from './ui/exports';
 import { bytes } from './ui/format';
-import type { WorkerResponse } from './worker/parse.worker';
+import { JdrParseJob } from './parse-client';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -22,7 +22,7 @@ const views = {
   main: $('view-main'),
 };
 
-let worker: Worker | null = null;
+let job: JdrParseJob | null = null;
 let player: JdrPlayer | null = null;
 let doc: JdrDocument | null = null;
 let source: BlobByteSource | null = null;
@@ -94,37 +94,38 @@ const PHASE_LABEL: Record<string, string> = {
   analyze: '분석 중…',
 };
 
+let fellBackToMainThread = false;
+
 async function openFile(file: File): Promise<void> {
   setControlsEnabled(false);
   player?.close();
   player = null;
   charts?.destroy();
-  worker?.terminate();
+  job?.cancel();
 
   showView('loading');
   $('loading-detail').textContent = `${file.name} · ${bytes(file.size)}`;
   $('loading-phase').textContent = '파일을 읽는 중…';
   ($('loading-bar') as HTMLElement).style.width = '0%';
+  fellBackToMainThread = false;
 
-  worker = new Worker(new URL('./worker/parse.worker.ts', import.meta.url), { type: 'module' });
-  worker.onmessage = async (ev: MessageEvent<WorkerResponse>) => {
-    const msg = ev.data;
-    if (msg.type === 'progress') {
-      showProgress(msg.progress);
-    } else if (msg.type === 'error') {
-      $('error-message').textContent = msg.message;
-      showView('error');
-    } else {
-      doc = msg.doc;
-      source = new BlobByteSource(file, file.name);
-      await mount(doc, source);
+  job = new JdrParseJob();
+  try {
+    const parsed = await job.run(file, showProgress, () => {
+      fellBackToMainThread = true;
+      $('loading-detail').textContent =
+        `${file.name} · ${bytes(file.size)} — 이 환경에서는 워커를 쓸 수 없어 조금 느릴 수 있습니다`;
+    });
+    doc = parsed;
+    source = new BlobByteSource(file, file.name);
+    await mount(parsed, source);
+    if (fellBackToMainThread) {
+      toast('워커 없이 처리했습니다 — 로컬 서버로 열면 더 빠릅니다');
     }
-  };
-  worker.onerror = (e) => {
-    $('error-message').textContent = `파싱 워커 오류: ${e.message}`;
+  } catch (err) {
+    $('error-message').textContent = err instanceof Error ? err.message : String(err);
     showView('error');
-  };
-  worker.postMessage({ type: 'parse', file });
+  }
 }
 
 function showProgress(p: ParseProgress): void {

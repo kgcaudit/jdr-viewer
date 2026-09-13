@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
+    "build:single": "vite build --config vite.config.single.ts",
     "make-sample": "tsx scripts/make-sample-jdr.ts"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.0",
+    "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^2.1.8"
   }
 }
