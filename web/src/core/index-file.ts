@@ -17,18 +17,18 @@ import type { SegmentInfo, TimeSource } from './segment';
 
 export const INDEX_FILE_NAME = 'jdr-index.json';
 export const INDEX_FORMAT = 'jdr-viewer-index';
-/** 2: 종료 시각을 실제 마지막 패킷 기준으로 바로잡음 (v1은 다시 읽는다) */
-export const INDEX_VERSION = 2;
+/** 3: 시작 시각도 실제 첫 패킷 기준으로 바로잡음 (v2 이하는 다시 읽는다) */
+export const INDEX_VERSION = 3;
 
 /** 행을 배열로 저장한다 — 키 이름이 828번 반복되면 파일이 3배가 된다 */
 const FIELDS = [
   'path', 'size', 'mtime', 'start', 'end', 'packets',
-  'ch0', 'ch1', 'gps', 'sensor', 'blocks', 'timeSource', 'endEstimated', 'error',
+  'ch0', 'ch1', 'gps', 'sensor', 'blocks', 'timeSource', 'endEstimated', 'headerShift', 'error',
 ] as const;
 
 type Row = [
   string, number, number, number, number, number,
-  number, number, number, number, number[], string, number, string | null,
+  number, number, number, number, number[], string, number, number, string | null,
 ];
 
 export interface IndexFile {
@@ -53,7 +53,7 @@ export function buildIndexFile(items: { seg: SegmentInfo; file: File }[]): Index
     seg.path, seg.size, file.lastModified,
     seg.startMs, seg.endMs, seg.packetCount,
     seg.ch0Count, seg.ch1Count, seg.gpsCount, seg.sensorCount,
-    seg.blockOffsets, seg.timeSource, seg.endEstimated ? 1 : 0, seg.error ?? null,
+    seg.blockOffsets, seg.timeSource, seg.endEstimated ? 1 : 0, seg.headerShiftMs, seg.error ?? null,
   ]);
   return {
     format: INDEX_FORMAT,
@@ -118,7 +118,8 @@ export function parseIndexFile(text: string): Map<string, IndexEntry> {
         blockOffsets: Array.isArray(r[10]) ? r[10].map(Number) : [],
         timeSource: (r[11] as TimeSource) ?? 'unknown',
         endEstimated: r[12] === 1,
-        error: r[13] ?? undefined,
+        headerShiftMs: Number(r[13]) || 0,
+        error: r[14] ?? undefined,
       },
     });
   }

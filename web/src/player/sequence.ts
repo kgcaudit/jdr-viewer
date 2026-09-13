@@ -237,8 +237,11 @@ export class SequencePlayer {
       this.index = index;
       this.lastAbsMs = absMs;
 
+      // 절대 시각의 기준은 **실제 첫 패킷**이다. 프로브가 구한 seg.startMs와
+      // 어긋나면 타임라인 전체가 그만큼 밀리므로, 문서 값을 우선한다.
+      const baseMs = Number.isFinite(loaded.doc.firstTimeMs) ? loaded.doc.firstTimeMs : seg.startMs;
       player.onTimeUpdate = (relMs) => {
-        const abs = seg.startMs + relMs;
+        const abs = baseMs + relMs;
         this.lastAbsMs = abs;
         this.onTimeUpdate?.(abs, index);
         this.maybePreload(abs, index);
@@ -250,7 +253,7 @@ export class SequencePlayer {
       player.setMuted(this.muted);
       this.onSegmentChange?.(index, status);
 
-      const rel = Math.max(0, absMs - seg.startMs);
+      const rel = Math.max(0, absMs - baseMs);
       if (rel > 0) player.seek(rel);
       if (this.wantPlaying) await player.play();
       else await player.pumpOnce();

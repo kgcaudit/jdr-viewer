@@ -496,3 +496,15 @@ body {
 }
 .rng-sum.status-warn { background: none; }
 .export-item span + span { display: block; }
+
+/* ── 빈 구간 진단 ────────────────────────── */
+.gap-list { display: grid; gap: 3px; max-height: 40vh; overflow-y: auto; margin-bottom: 6px; }
+.gap-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+  padding: 6px 10px; border-radius: 6px; background: var(--surface-2);
+  border-left: 3px solid var(--border); font-size: 12px;
+}
+.gap-row.is-missing { border-left-color: var(--warn); }
+.gap-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.gap-dur { font-variant-numeric: tabular-nums; color: var(--muted); }
+.gap-why { flex: 1 1 100%; color: var(--muted); font-size: 11px; word-break: break-all; }

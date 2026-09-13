@@ -34,6 +34,11 @@ export interface SegmentInfo {
   timeSource: TimeSource;
   /** 종료 시각을 프레임 수로 추정했는가 */
   endEstimated: boolean;
+  /**
+   * 헤더에 적힌 시작 시각이 실제 첫 패킷보다 얼마나 늦었나(ms).
+   * 0이 아니면 헤더를 그대로 믿었을 때 그만큼 없는 빈 구간이 생긴다.
+   */
+  headerShiftMs: number;
   /** 읽을 수 없는 파일이면 사유 */
   error?: string;
 }
@@ -85,7 +90,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     name, path, folder, size,
     startMs: NaN, endMs: NaN, durationMs: 0,
     packetCount: 0, ch0Count: 0, ch1Count: 0, gpsCount: 0, sensorCount: 0,
-    blockOffsets: [], timeSource: 'unknown', endEstimated: false,
+    blockOffsets: [], timeSource: 'unknown', endEstimated: false, headerShiftMs: 0,
   };
 
   const first = await findFirstBlock(src);
@@ -132,10 +137,19 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
   let endMs = readSystemTimeFromView(lastHeader, 0xa4);
   let timeSource: TimeSource = 'header';
 
-  // 헤더의 종료 시각은 실제 마지막 패킷보다 이를 수 있다(실기기에서 1.8초 차이 확인).
+  // 헤더에 적힌 시각은 실제 패킷과 어긋날 수 있다(실기기에서 종료 시각 1.8초 차이 확인).
   // 그대로 두면 재생 길이 표시가 어긋나고, 파일 사이에 없는 빈 구간이 생긴다.
   // 읽기 2번이면 확인되므로 항상 대조한다.
   const fromPackets = await timeRangeFromPackets(src, offsets[0], lastIndexOffset, lastCount);
+
+  // 시작은 **첫 패킷이 기준**이다. 재생도 거기서 시작하므로(doc.firstTimeMs),
+  // 헤더 값을 쓰면 타임라인의 절대 시각이 재생과 어긋난다.
+  let headerShiftMs = 0;
+  if (Number.isFinite(fromPackets.startMs)) {
+    if (Number.isFinite(startMs)) headerShiftMs = startMs - fromPackets.startMs;
+    startMs = fromPackets.startMs;
+    if (headerShiftMs !== 0) timeSource = 'packets';
+  }
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
     if (Number.isFinite(fromPackets.startMs)) {
       startMs = fromPackets.startMs;
@@ -173,6 +187,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     durationMs: Math.max(0, endMs - startMs),
     timeSource,
     endEstimated,
+    headerShiftMs: Math.round(headerShiftMs),
   };
 }
 

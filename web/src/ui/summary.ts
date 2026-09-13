@@ -31,7 +31,7 @@ function librarySection(lib: Library): string {
       <dt>전체 범위</dt><dd>${formatRecordedTime(lib.startMs)}<br>~ ${formatRecordedTime(lib.endMs)}</dd>
       <dt>벽시계 길이</dt><dd>${formatDuration(lib.spanMs / 1000)}</dd>
       <dt>실제 영상</dt><dd>${formatDuration(lib.coveredMs / 1000)} <span class="muted">(${coverage.toFixed(1)}%)</span></dd>
-      <dt>빈 구간</dt><dd>${lib.gaps.length === 0 ? '없음' : `${num(lib.gaps.length)}개 · 합계 ${formatDuration(lib.gaps.reduce((a, g) => a + g.durationMs, 0) / 1000)}`}</dd>
+      <dt>빈 구간</dt><dd>${gapSummary(lib)}</dd>
       <dt>전체 크기</dt><dd>${bytes(lib.totalBytes)}</dd>
     </dl>
     ${overlapNote}`;
@@ -81,6 +81,19 @@ function parameterSetNote(doc: JdrDocument): string {
     .join('');
   if (!rows) return '';
   return `<div class="note"><strong>H.264 비트스트림 점검</strong><ul style="margin:6px 0 0;padding-left:18px">${rows}</ul></div>`;
+}
+
+/**
+ * 빈 구간을 한 줄로. **왜 비었는지**까지 적는다 —
+ * 파일이 없는 것과 기록이 끊긴 것은 원인도 대응도 다르다.
+ */
+function gapSummary(lib: Library): string {
+  if (lib.gaps.length === 0) return '없음';
+  const totalMs = lib.gaps.reduce((a, g) => a + g.durationMs, 0);
+  const missing = lib.gaps.reduce((a, g) => a + Math.max(0, g.numberSkip), 0);
+  const parts = [`${num(lib.gaps.length)}곳 · 합계 ${formatDuration(totalMs / 1000)}`];
+  if (missing > 0) parts.push(`파일 ${num(missing)}개 없음`);
+  return parts.join('<br>');
 }
 
 export function renderSummary(el: HTMLElement, input: SummaryInput): void {

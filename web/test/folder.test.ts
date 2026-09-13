@@ -126,7 +126,7 @@ describe('라이브러리 타임라인', () => {
     id: `${folder}/${name}`, name, path: `${folder}/${name}`, folder, size: 70 << 20,
     startMs: start, endMs: start + durSec * 1000, durationMs: durSec * 1000,
     packetCount: 100, ch0Count: 50, ch1Count: 50, gpsCount: 5, sensorCount: 20,
-    blockOffsets: [0], timeSource: 'header', endEstimated: false,
+    blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
   });
 
   it('순번이 순환해도 기록 시각 순으로 정렬한다', () => {
@@ -239,5 +239,124 @@ describe('인덱스 기반 레코드 스캔', () => {
     const result = await scanRecords(new BufferByteSource(bytes, 'x.jdr'), seg, 0);
     expect(formatRecordedTime(result.gps[0].timeMs, false)).toBe('2026-09-09 08:16:00');
     expect(result.gsensor.timeMs[0]).toBe(T(8, 16, 0));
+  });
+});
+
+describe('빈 구간의 원인 가르기', () => {
+  /** 번호가 이어지는 파일들 */
+  const f = (no: number, startMs: number, durSec = 60): SegmentInfo => ({
+    id: `data/${String(no).padStart(8, '0')}.jdr`,
+    name: `${String(no).padStart(8, '0')}.jdr`,
+    path: `data/${String(no).padStart(8, '0')}.jdr`,
+    folder: 'data', size: 70 << 20,
+    startMs, endMs: startMs + durSec * 1000, durationMs: durSec * 1000,
+    packetCount: 4000, ch0Count: 1800, ch1Count: 1800, gpsCount: 60, sensorCount: 600,
+    blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
+  });
+
+  const T0 = Date.UTC(2026, 8, 12, 23, 16, 43);
+
+  it('파일 번호가 건너뛰면 파일이 없는 것으로 본다', () => {
+    // 87 다음이 89 — 88이 없다
+    const lib = buildLibrary([f(87, T0), f(89, T0 + 120_000)]);
+    expect(lib.gaps).toHaveLength(1);
+    expect(lib.gaps[0].numberSkip).toBe(1);
+    expect(lib.gaps[0].beforeName).toBe('00000087.jdr');
+    expect(lib.gaps[0].afterName).toBe('00000089.jdr');
+  });
+
+  it('여러 개가 빠지면 그 수를 센다', () => {
+    const lib = buildLibrary([f(87, T0), f(92, T0 + 300_000)]);
+    expect(lib.gaps[0].numberSkip).toBe(4);
+  });
+
+  it('번호가 이어지는데 비면 기록이 끊긴 것이다', () => {
+    // 87 다음이 88인데 시간이 17초 빈다
+    const lib = buildLibrary([f(87, T0), f(88, T0 + 77_000)]);
+    expect(lib.gaps).toHaveLength(1);
+    expect(lib.gaps[0].numberSkip).toBe(0);
+    expect(lib.gaps[0].durationMs).toBe(17_000);
+  });
+
+  it('파일 번호를 못 읽으면 -1로 둔다 (넘겨짚지 않는다)', () => {
+    const a = { ...f(1, T0), name: 'front.jdr', path: 'data/front.jdr' };
+    const b = { ...f(2, T0 + 120_000), name: 'rear.jdr', path: 'data/rear.jdr' };
+    const lib = buildLibrary([a, b]);
+    expect(lib.gaps[0].numberSkip).toBe(-1);
+  });
+
+  it('번호가 거꾸로 가면 (덮어쓰기로 순번이 돌면) 넘겨짚지 않는다', () => {
+    const lib = buildLibrary([f(900, T0), f(3, T0 + 120_000)]);
+    expect(lib.gaps[0].numberSkip).toBe(-1);
+  });
+
+  it('붙어 있는 파일에는 빈 구간이 없다', () => {
+    const lib = buildLibrary([f(87, T0), f(88, T0 + 60_000), f(89, T0 + 120_000)]);
+    expect(lib.gaps).toEqual([]);
+  });
+});
+
+describe('헤더 시각과 실제 패킷이 어긋날 때', () => {
+  const T0 = Date.UTC(2026, 8, 12, 23, 16, 43);
+
+  function build(headerStartMs: number, headerEndMs: number) {
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 60; f++) {
+      const t = T0 + Math.round((f * 1000) / 30);
+      packets.push({ tag: f % 30 === 0 ? '00VI' : '00VP', payload: new Uint8Array(100), timeMs: t, aux: f });
+    }
+    return new BufferByteSource(
+      buildJdrBlock(packets, 0, { startMs: headerStartMs, endMs: headerEndMs }),
+      'x.jdr',
+    );
+  }
+
+  const lastPacketMs = T0 + Math.round((59 * 1000) / 30);
+
+  it('헤더가 늦으면 첫 패킷을 쓴다 — 안 그러면 없는 빈 구간이 생긴다', async () => {
+    const src = build(T0 + 7_000, lastPacketMs);
+    const seg = await probeSegment({ src, name: 'x.jdr', path: 'data/x.jdr', size: src.size });
+    expect(seg.startMs).toBe(T0);
+    expect(seg.headerShiftMs).toBe(7_000);
+    expect(seg.timeSource).toBe('packets');
+  });
+
+  it('헤더가 이르면 그것도 첫 패킷으로 맞춘다 — 안 그러면 없는 겹침이 생긴다', async () => {
+    const src = build(T0 - 5_000, lastPacketMs);
+    const seg = await probeSegment({ src, name: 'x.jdr', path: 'data/x.jdr', size: src.size });
+    expect(seg.startMs).toBe(T0);
+    expect(seg.headerShiftMs).toBe(-5_000);
+  });
+
+  it('헤더와 패킷이 같으면 어긋남 0이고 헤더 출처 그대로다', async () => {
+    const src = build(T0, lastPacketMs);
+    const seg = await probeSegment({ src, name: 'x.jdr', path: 'data/x.jdr', size: src.size });
+    expect(seg.startMs).toBe(T0);
+    expect(seg.headerShiftMs).toBe(0);
+    expect(seg.timeSource).toBe('header');
+  });
+
+  it('헤더 시각이 어긋나도 길이는 실제 패킷 기준이다', async () => {
+    const src = build(T0 + 7_000, lastPacketMs - 3_000);
+    const seg = await probeSegment({ src, name: 'x.jdr', path: 'data/x.jdr', size: src.size });
+    expect(seg.startMs).toBe(T0);
+    expect(seg.endMs).toBe(lastPacketMs);
+    expect(seg.durationMs).toBe(lastPacketMs - T0);
+  });
+
+  it('헤더를 그대로 믿었다면 생겼을 빈 구간이 사라진다', async () => {
+    // 파일 두 개가 실제로는 붙어 있는데 헤더 시작만 7초씩 늦게 적힌 경우
+    const a = build(T0 + 7_000, lastPacketMs);
+    const segA = await probeSegment({ src: a, name: 'a.jdr', path: 'data/a.jdr', size: a.size });
+
+    const T1 = lastPacketMs + 33;
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 60; f++) {
+      packets.push({ tag: f % 30 === 0 ? '00VI' : '00VP', payload: new Uint8Array(100), timeMs: T1 + Math.round((f * 1000) / 30), aux: f });
+    }
+    const b = new BufferByteSource(buildJdrBlock(packets, 0, { startMs: T1 + 7_000 }), 'b.jdr');
+    const segB = await probeSegment({ src: b, name: 'b.jdr', path: 'data/b.jdr', size: b.size });
+
+    expect(buildLibrary([segA, segB]).gaps).toEqual([]);
   });
 });

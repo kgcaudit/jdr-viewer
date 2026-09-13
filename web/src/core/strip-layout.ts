@@ -13,13 +13,23 @@
  * 폰 390px에서는 5.9px다. 그래서 **구간마다 최소 폭을 보장**한다
  * (`minSegmentFraction`). 그만큼 긴 구간에서 덜어 오므로 길이 비율은
  * 약간 왜곡되지만, 누를 수 없는 구간보다는 낫다.
+ *
+ * 빈 구간의 폭은 **실제 길이에 비례**해야 한다. 예전에는 길이와 무관하게
+ * 하나당 2%를 줬는데, 파일 사이가 몇 초씩 벌어진 운행에서는 빗금이 화면의
+ * 30%를 덮어 "영상이 다 끊긴" 것처럼 보였다. 실제로는 3%도 안 비었는데도.
  */
 import type { Library } from './library';
 
-/** 빈 구간 하나가 축에서 차지할 비율 */
-const GAP_UNIT = 0.02;
-/** 빈 구간이 다 합쳐서 차지할 수 있는 최대 비율 */
+/**
+ * 빈 구간이 다 합쳐서 차지할 수 있는 최대 비율.
+ *
+ * 13시간짜리 공백이 축을 통째로 먹으면 정작 영상이 안 보인다.
+ */
 const GAP_TOTAL_MAX = 0.3;
+/** 빈 구간 하나의 최대 비율 (하나가 다 먹지 않도록) */
+const GAP_UNIT_MAX = 0.06;
+/** 폭을 몰라 픽셀 하한을 못 받을 때 쓰는 최소 비율 */
+const GAP_MIN_FALLBACK = 0.004;
 /** 최소 폭 보정이 수렴할 때까지 도는 횟수 (보통 2회면 끝난다) */
 const FIT_PASSES = 6;
 
@@ -72,14 +82,13 @@ export class StripLayout {
    * @param minSegmentFraction 구간 하나가 가질 최소 폭(0~1). 화면 폭을 아는
    *   쪽에서 `6px / 트랙폭`처럼 넘긴다. 0이면 예전처럼 길이에만 비례한다.
    */
-  constructor(lib: Library, minSegmentFraction = 0) {
+  constructor(lib: Library, minSegmentFraction = 0, minGapFraction = 0) {
     const segs = lib.segments;
     if (segs.length === 0) return;
 
-    const gapCount = lib.gaps.length;
-    const gapShare = Math.min(gapCount * GAP_UNIT, GAP_TOTAL_MAX);
+    const gapWidths = this.fitGaps(lib, minGapFraction);
+    const gapShare = gapWidths.reduce((a, b) => a + b, 0);
     const segShare = 1 - gapShare;
-    const gapWidth = gapCount > 0 ? gapShare / gapCount : 0;
 
     const min = Math.max(0, Math.min(minSegmentFraction, segShare / segs.length));
     const widths = fitWidths(segs.map((s) => Math.max(1, s.durationMs)), segShare, min);
@@ -89,10 +98,10 @@ export class StripLayout {
     let gapIdx = 0;
     for (let i = 0; i < segs.length; i++) {
       const s = segs[i];
-      if (gapIdx < gapCount && lib.gaps[gapIdx].toMs <= s.startMs) {
+      if (gapIdx < lib.gaps.length && lib.gaps[gapIdx].toMs <= s.startMs) {
         const g = lib.gaps[gapIdx];
-        this.items.push({ kind: 'gap', index: gapIdx, from: cursor, to: cursor + gapWidth, startMs: g.fromMs, endMs: g.toMs });
-        cursor += gapWidth;
+        this.items.push({ kind: 'gap', index: gapIdx, from: cursor, to: cursor + gapWidths[gapIdx], startMs: g.fromMs, endMs: g.toMs });
+        cursor += gapWidths[gapIdx];
         gapIdx++;
       }
       this.items.push({ kind: 'segment', index: i, from: cursor, to: cursor + widths[i], startMs: s.startMs, endMs: s.endMs });
@@ -101,6 +110,33 @@ export class StripLayout {
     // 반올림 오차로 끝이 1에 못 미치는 것을 맞춰 준다
     const last = this.items[this.items.length - 1];
     if (last) last.to = 1;
+  }
+
+  /**
+   * 빈 구간들의 폭.
+   *
+   * 원칙은 "실제 비어 있는 만큼만 차지한다"이다. 다만 두 가지를 손본다.
+   *   - 너무 얇아 안 보이면 최소 폭을 준다 (있다는 사실은 보여야 한다)
+   *   - 13시간짜리 공백이 축을 다 먹지 않게 하나·합계에 상한을 둔다
+   */
+  private fitGaps(lib: Library, minGapFraction: number): number[] {
+    const n = lib.gaps.length;
+    if (n === 0) return [];
+
+    const gapTotal = lib.gaps.reduce((a, g) => a + Math.max(1, g.durationMs), 0);
+    const timeTotal = gapTotal + lib.coveredMs;
+    // 실제로 비어 있는 비율. 3%만 비었으면 빗금도 3%여야 한다.
+    const natural = timeTotal > 0 ? gapTotal / timeTotal : 0;
+
+    const min = minGapFraction > 0 ? minGapFraction : GAP_MIN_FALLBACK;
+    const budget = Math.min(Math.max(natural, min * n), GAP_TOTAL_MAX);
+
+    const widths = lib.gaps.map((g) => (Math.max(1, g.durationMs) / gapTotal) * budget);
+    // 하나가 다 먹지 않게, 또 안 보일 만큼 얇지 않게
+    let fixed = widths.map((w) => Math.max(min, Math.min(w, GAP_UNIT_MAX)));
+    const sum = fixed.reduce((a, b) => a + b, 0);
+    if (sum > GAP_TOTAL_MAX) fixed = fixed.map((w) => (w / sum) * GAP_TOTAL_MAX);
+    return fixed;
   }
 
   /** 절대 시각 → 축 위치(0~1) */

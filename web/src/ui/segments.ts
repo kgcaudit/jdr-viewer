@@ -4,7 +4,7 @@
  * 증거 추적성 원칙: 병합은 보기 편하게 만드는 것일 뿐이므로
  * 어느 시각이 어느 파일에서 왔는지 항상 되짚을 수 있어야 한다.
  */
-import type { Library } from '../core/library';
+import type { Gap, Library } from '../core/library';
 import type { SegmentInfo } from '../core/segment';
 import { StripLayout } from '../core/strip-layout';
 import { formatDuration, formatRecordedTime } from '../core/time';
@@ -27,6 +27,8 @@ export interface FolderStat {
 
 /** 구간 하나가 화면에서 최소한 이만큼은 되어야 손가락으로 겨냥할 수 있다 */
 const MIN_SEGMENT_PX = 7;
+/** 빈 구간은 "있다"는 걸 알릴 정도만 — 길이에 비례하되 이보다 얇아지지 않게 */
+const MIN_GAP_PX = 2;
 
 /**
  * 타임라인 스트립을 그린다.
@@ -44,7 +46,7 @@ export function renderStrip(track: HTMLElement, lib: Library): StripLayout | nul
   const trackPx = track.clientWidth || 0;
   const minFrac = trackPx > 0 ? MIN_SEGMENT_PX / trackPx : 0;
 
-  const layout = new StripLayout(lib, minFrac);
+  const layout = new StripLayout(lib, minFrac, trackPx > 0 ? MIN_GAP_PX / trackPx : 0);
   const parts: string[] = [];
   for (const it of layout.items) {
     const left = it.from * 100;
@@ -56,9 +58,9 @@ export function renderStrip(track: HTMLElement, lib: Library): StripLayout | nul
       )}"></span>`);
     } else {
       const g = lib.gaps[it.index];
-      // 빈 구간은 숨기지 않는다 — 녹화 공백도 사실이다. 다만 폭은 눌러 담는다.
+      // 빈 구간은 숨기지 않는다 — 녹화 공백도 사실이다. 폭은 실제 길이에 비례한다.
       parts.push(`<span class="strip-gap" style="left:${left}%;width:${width}%" title="${escapeHtml(
-        `빈 구간 ${formatDuration(g.durationMs / 1000)}\n${formatRecordedTime(g.fromMs, false)} ~ ${formatRecordedTime(g.toMs, false)}`,
+        `빈 구간 ${formatDuration(g.durationMs / 1000)}\n${formatRecordedTime(g.fromMs, false)} ~ ${formatRecordedTime(g.toMs, false)}\n${gapCause(g)}`,
       )}"></span>`);
     }
   }
@@ -86,10 +88,49 @@ export function markActiveSegment(track: HTMLElement, index: number): void {
   });
 }
 
+/**
+ * 빈 구간의 성격을 가른다.
+ *
+ * 파일 번호가 건너뛰었으면 **파일이 실제로 없는 것**이고(덮어썼거나 지워졌다),
+ * 번호가 이어지는데도 시간이 비면 **기록이 끊겼거나 시각이 어긋난 것**이다.
+ * 둘은 원인도 대응도 완전히 다르므로 반드시 구분해서 보여 준다.
+ */
+export function gapCause(g: Gap): string {
+  if (g.numberSkip > 0) return `파일 ${num(g.numberSkip)}개 없음 (${g.beforeName} → ${g.afterName})`;
+  if (g.numberSkip === 0) return `파일 번호는 이어짐 (${g.beforeName} → ${g.afterName}) — 기록 끊김`;
+  return `${g.beforeName} → ${g.afterName}`;
+}
+
+function gapSection(gaps: Gap[]): string {
+  const totalMs = gaps.reduce((a, g) => a + g.durationMs, 0);
+  const missing = gaps.reduce((a, g) => a + Math.max(0, g.numberSkip), 0);
+  const broken = gaps.filter((g) => g.numberSkip === 0).length;
+
+  const head = [
+    `빈 구간 ${num(gaps.length)}곳 · 합계 ${formatDuration(totalMs / 1000)}`,
+    missing > 0 ? `파일 ${num(missing)}개 없음` : '',
+    broken > 0 ? `번호는 이어지는데 끊긴 곳 ${num(broken)}곳` : '',
+  ].filter(Boolean).join(' · ');
+
+  const rows = gaps.slice(0, 60).map((g) => `<div class="gap-row${g.numberSkip > 0 ? ' is-missing' : ''}">
+    <span class="gap-time">${formatRecordedTime(g.fromMs, false).slice(11, 19)} ~ ${formatRecordedTime(g.toMs, false).slice(11, 19)}</span>
+    <span class="gap-dur">${formatDuration(g.durationMs / 1000)}</span>
+    <span class="gap-why">${escapeHtml(gapCause(g))}</span>
+  </div>`).join('');
+
+  return `<p class="section-title">${escapeHtml(head)}</p>
+    <div class="gap-list">${rows}${gaps.length > 60 ? `<p class="muted small">외 ${num(gaps.length - 60)}곳</p>` : ''}</div>
+    <p class="muted small">파일 번호가 건너뛰면 <strong>그 파일이 실제로 없는 것</strong>입니다
+      (덮어쓰기·삭제). 번호가 이어지는데도 비어 있으면 녹화가 끊겼거나 기록된 시각이 어긋난 것입니다.</p>`;
+}
+
 function segmentRow(s: SegmentInfo, index: number, activeIndex: number): string {
   const flags: string[] = [];
   if (s.timeSource !== 'header') flags.push(`시각출처 ${TIME_SOURCE_LABEL[s.timeSource]}`);
   if (s.endEstimated) flags.push('길이 추정');
+  if (Math.abs(s.headerShiftMs) >= 500) {
+    flags.push(`헤더 시각 ${(s.headerShiftMs / 1000).toFixed(1)}초 어긋남`);
+  }
   return `<button class="seg-row${index === activeIndex ? ' is-active' : ''}" data-open="${index}" type="button">
     <span class="seg-time">${formatRecordedTime(s.startMs, false)}</span>
     <span class="seg-main">
@@ -137,16 +178,7 @@ export function renderSegments(
            .join('')}${lib.invalid.length > 30 ? `<p class="muted small">외 ${num(lib.invalid.length - 30)}개</p>` : ''}</div>`
       : '';
 
-  const gapBox =
-    lib.gaps.length > 0
-      ? `<p class="section-title">빈 구간 ${num(lib.gaps.length)}개</p>
-         <div class="tag-grid">${lib.gaps
-           .slice(0, 20)
-           .map(
-             (g) => `<span class="tag-pill">${formatRecordedTime(g.fromMs, false).slice(11)} ~ ${formatRecordedTime(g.toMs, false).slice(11)} · ${formatDuration(g.durationMs / 1000)}</span>`,
-           )
-           .join('')}${lib.gaps.length > 20 ? `<span class="tag-pill muted">외 ${num(lib.gaps.length - 20)}개</span>` : ''}</div>`
-      : '';
+  const gapBox = lib.gaps.length > 0 ? gapSection(lib.gaps) : '';
 
   el.innerHTML = `
     ${folderBox}

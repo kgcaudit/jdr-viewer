@@ -8,7 +8,7 @@ const seg = (name: string, start: number, durSec: number, folder = 'data'): Segm
   id: `${folder}/${name}`, name, path: `${folder}/${name}`, folder, size: 70 << 20,
   startMs: start, endMs: start + durSec * 1000, durationMs: durSec * 1000,
   packetCount: 5000, ch0Count: 2000, ch1Count: 2000, gpsCount: 70, sensorCount: 700,
-  blockOffsets: [0], timeSource: 'header', endEstimated: false,
+  blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
 });
 
 describe('날짜 키', () => {

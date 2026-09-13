@@ -34,7 +34,15 @@ function ascii(s: string): number[] {
 }
 
 /** 패킷 목록으로 JEB 블록 하나를 만든다. */
-export function buildJdrBlock(packets: SynthPacket[], baseOffset = 0): Bytes {
+/**
+ * 헤더에 적을 시각을 패킷과 다르게 넣고 싶을 때 쓴다.
+ * 실기기에서 헤더 시각이 실제 패킷과 어긋나는 일이 있어 그걸 재현한다.
+ */
+export interface HeaderTimeOverride { startMs?: number; endMs?: number }
+
+export function buildJdrBlock(
+  packets: SynthPacket[], baseOffset = 0, headerTime?: HeaderTimeOverride,
+): Bytes {
   let payloadTotal = 0;
   for (const p of packets) payloadTotal += PACKET_HEADER_SIZE + p.payload.length;
   const indexOffset = baseOffset + HEADER_SIZE + payloadTotal;
@@ -60,8 +68,8 @@ export function buildJdrBlock(packets: SynthPacket[], baseOffset = 0): Bytes {
   dv.setUint32(0x88, counts.gps, true);
   dv.setUint32(0x8c, counts.sensor, true);
   if (packets.length > 0) {
-    writeSystemTime(dv, 0x94, packets[0].timeMs);
-    writeSystemTime(dv, 0xa4, packets[packets.length - 1].timeMs);
+    writeSystemTime(dv, 0x94, headerTime?.startMs ?? packets[0].timeMs);
+    writeSystemTime(dv, 0xa4, headerTime?.endMs ?? packets[packets.length - 1].timeMs);
   }
   dv.setUint32(0xb8, indexOffset, true);
   out.set(ascii('SYNT'), 0xf8);

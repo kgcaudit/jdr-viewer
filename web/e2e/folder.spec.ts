@@ -743,3 +743,18 @@ test('날짜 칩이 연도까지 보여 준다', async ({ page }) => {
   // 09-09 가 아니라 26/09/09
   await expect(page.locator('#session-chips')).toContainText('26/09/08 전체');
 });
+
+test('빈 구간이 왜 비었는지 알려 준다', async ({ page }) => {
+  // 9/8 전체를 열면 오전·오후 사이에 13시간 공백이 있다
+  await openFolder(page);
+  await page.locator('[data-day="2026-09-08"]').click();
+  await page.locator('[data-open-day]').click();
+  await expect(page.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+
+  await page.locator('.tab[data-tab="segments"]').click();
+  const panel = page.locator('#tab-segments');
+  await expect(panel).toContainText('빈 구간 1곳');
+  // 파일 번호가 건너뛰었는지 이어지는지를 밝힌다
+  await expect(panel.locator('.gap-why')).toContainText('.jdr');
+  await expect(panel).toContainText('파일 번호가 건너뛰면');
+});

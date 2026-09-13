@@ -39,7 +39,7 @@ function segOf(startMs: number, seconds: number, name: string): SegmentInfo {
     id: name, name, path: `data/${name}`, folder: 'data', size: 7_000_000,
     startMs, endMs: startMs + seconds * 1000, durationMs: seconds * 1000,
     packetCount: seconds * 30 * 2, ch0Count: seconds * 30, ch1Count: seconds * 30,
-    gpsCount: 0, sensorCount: 0, blockOffsets: [0], timeSource: 'header', endEstimated: false,
+    gpsCount: 0, sensorCount: 0, blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
   };
 }
 

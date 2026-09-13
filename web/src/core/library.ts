@@ -10,6 +10,18 @@ export interface Gap {
   fromMs: number;
   toMs: number;
   durationMs: number;
+  /** 빈 구간 앞뒤 파일 — 원인을 되짚으려면 이게 있어야 한다 */
+  beforeName: string;
+  afterName: string;
+  /**
+   * 파일 번호가 몇 개 건너뛰었는가. `00000087` → `00000089`면 1.
+   * 번호를 못 읽으면 -1.
+   *
+   * 이게 이 빈 구간의 성격을 가른다.
+   *   번호가 건너뜀  → 파일이 실제로 없다 (덮어썼거나 지워졌다)
+   *   번호가 이어짐  → 파일은 다 있는데 기록이 끊겼거나 시각이 어긋난 것
+   */
+  numberSkip: number;
 }
 
 export interface Overlap {
@@ -38,6 +50,12 @@ export interface Library {
 
 /** 이보다 짧은 틈은 파일 경계의 오차로 보고 갭으로 세지 않는다. */
 export const GAP_THRESHOLD_MS = 1500;
+
+/** 파일명 끝의 순번 (`data/00000087.jdr` → 87). 못 읽으면 NaN. */
+export function fileNumberOf(name: string): number {
+  const m = /(\d+)(?:\.[^.]*)?$/.exec(name);
+  return m ? Number(m[1]) : NaN;
+}
 /**
  * 겹침은 갭보다 민감하게 본다.
  * 같은 시각을 담은 파일이 있다는 사실 자체가 알려야 할 정보이기 때문이다
@@ -67,7 +85,14 @@ export function buildLibrary(all: SegmentInfo[]): Library {
     const prevEnd = endMs;
     const cur = segments[i];
     if (cur.startMs - prevEnd > GAP_THRESHOLD_MS) {
-      gaps.push({ fromMs: prevEnd, toMs: cur.startMs, durationMs: cur.startMs - prevEnd });
+      const before = segments[i - 1];
+      const a = fileNumberOf(before.name);
+      const b = fileNumberOf(cur.name);
+      gaps.push({
+        fromMs: prevEnd, toMs: cur.startMs, durationMs: cur.startMs - prevEnd,
+        beforeName: before.name, afterName: cur.name,
+        numberSkip: Number.isFinite(a) && Number.isFinite(b) && b > a ? b - a - 1 : -1,
+      });
     } else if (cur.startMs < prevEnd - OVERLAP_THRESHOLD_MS) {
       overlaps.push({ a: i - 1, b: i, fromMs: cur.startMs, toMs: Math.min(prevEnd, cur.endMs) });
     }

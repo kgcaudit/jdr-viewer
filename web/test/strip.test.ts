@@ -8,7 +8,7 @@ const seg = (name: string, start: number, durSec: number): SegmentInfo => ({
   id: name, name, path: `data/${name}`, folder: 'data', size: 70 << 20,
   startMs: start, endMs: start + durSec * 1000, durationMs: durSec * 1000,
   packetCount: 5000, ch0Count: 2000, ch1Count: 2000, gpsCount: 70, sensorCount: 700,
-  blockOffsets: [0], timeSource: 'header', endEstimated: false,
+  blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
 });
 
 describe('스트립 축', () => {
@@ -113,10 +113,10 @@ describe('최소 구간 폭', () => {
     // 60개 × 7px = 420px > 390px이라 7px를 다 줄 수는 없다.
     // 그때는 구간 몫을 똑같이 나눈다 (빈 구간 표시는 그대로 둔다).
     const each = (segs[0].to - segs[0].from) * trackPx;
-    expect(each).toBeGreaterThan(5.5);
+    expect(each).toBeGreaterThan(4.5);
     for (const it of segs) expect((it.to - it.from) * trackPx).toBeCloseTo(each, 6);
     // 보정 전 4초짜리는 1px도 안 됐다
-    expect(each).toBeGreaterThan(5);
+    expect(each).toBeGreaterThan(4.5);
   });
 
   it('여유가 있으면 요청한 최소 폭을 지킨다', () => {
@@ -206,5 +206,62 @@ describe('빈 구간 스냅', () => {
       const inGap = ms > lib.segments[0].endMs && ms < lib.segments[1].startMs;
       expect(inGap).toBe(false);
     }
+  });
+});
+
+describe('빈 구간의 폭', () => {
+  /** 실기기 모양: 22개 파일, 사이마다 몇 초씩 빔 (30분 운행) */
+  function gappySession(gapSec: number) {
+    const segs: SegmentInfo[] = [];
+    let t = T(23, 16, 43);
+    for (let i = 0; i < 22; i++) {
+      segs.push(seg(`g${i}.jdr`, t, 66));
+      t += (66 + gapSec) * 1000;
+    }
+    return buildLibrary(segs);
+  }
+
+  function gapShareOf(layout: StripLayout): number {
+    return layout.items.filter((i) => i.kind === 'gap').reduce((a, i) => a + (i.to - i.from), 0);
+  }
+
+  it('몇 초짜리 공백 21개가 화면을 뒤덮지 않는다', () => {
+    const lib = gappySession(5);
+    expect(lib.gaps).toHaveLength(21);
+    const share = gapShareOf(new StripLayout(lib, 7 / 390, 2 / 390));
+    // 실제로 비어 있는 비율은 5/(66+5) ≈ 7%. 그 언저리여야 한다.
+    expect(share).toBeLessThan(0.15);
+    expect(share).toBeGreaterThan(0.02);
+  });
+
+  it('많이 비면 그만큼 넓게 나온다 — 사실대로', () => {
+    const small = gapShareOf(new StripLayout(gappySession(5), 7 / 390, 2 / 390));
+    const big = gapShareOf(new StripLayout(gappySession(60), 7 / 390, 2 / 390));
+    expect(big).toBeGreaterThan(small * 2);
+  });
+
+  it('13시간짜리 공백도 축을 다 먹지는 않는다', () => {
+    const lib = buildLibrary([
+      seg('a.jdr', T(8, 0), 69),
+      seg('b.jdr', T(21, 0), 69),
+    ]);
+    const share = gapShareOf(new StripLayout(lib, 7 / 390, 2 / 390));
+    expect(share).toBeLessThanOrEqual(0.3 + 1e-6);
+  });
+
+  it('아주 짧은 공백도 보이기는 한다 — 있다는 사실은 숨기지 않는다', () => {
+    const lib = buildLibrary([
+      seg('a.jdr', T(8, 0), 3600),
+      seg('b.jdr', T(9, 0, 2), 3600),   // 2초 공백
+    ]);
+    expect(lib.gaps).toHaveLength(1);
+    const gap = new StripLayout(lib, 7 / 390, 2 / 390).items.find((i) => i.kind === 'gap')!;
+    expect((gap.to - gap.from) * 390).toBeGreaterThanOrEqual(2 - 1e-6);
+  });
+
+  it('공백이 없으면 축은 구간만으로 채워진다', () => {
+    const lib = buildLibrary([seg('a.jdr', T(8, 0), 66), seg('b.jdr', T(8, 1, 6), 66)]);
+    expect(lib.gaps).toEqual([]);
+    expect(gapShareOf(new StripLayout(lib, 7 / 390, 2 / 390))).toBe(0);
   });
 });
