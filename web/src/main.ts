@@ -14,7 +14,7 @@ import {
   mergeBookmarks, parseBookmarks, serializeBookmarks, sortBookmarks, type Bookmark,
 } from './core/bookmarks';
 import { probeSegment, type SegmentInfo } from './core/segment';
-import { formatDuration, formatRecordedTime } from './core/time';
+import { formatDuration, formatRecordedTime, formatShortDate } from './core/time';
 import type { JdrDocument, ParseProgress } from './core/types';
 import { JdrParseJob } from './parse-client';
 import { MergedRecords, RecordScanJob } from './scan-client';
@@ -27,6 +27,8 @@ import { renderSummary } from './ui/summary';
 import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
 import { renderExports } from './ui/exports';
+import { renderRangeExport } from './ui/range-export';
+import { buildRange, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange } from './core/range-export';
 import {
   highlightSegmentRow, markActiveSegment, markLoadingSegment, renderSegments, renderStrip,
   updateStripCursor, type FolderStat,
@@ -467,6 +469,7 @@ async function openDay(dayKey: string, sessionIndex: number): Promise<void> {
 
 // ── 재생 세션 ───────────────────────────────────────
 async function teardown(): Promise<void> {
+  exportRange = null;
   session?.scan?.stop();
   session?.player.close();
   session?.loader.clear();
@@ -560,7 +563,7 @@ function onSegmentChange(index: number, status: PlayerStatus | null): void {
 
   renderSummary($('tab-summary'), { doc, lib: s.lib, segment: seg, merged: s.merged });
   if (doc && s.player.currentSource) {
-    renderExports($('tab-export'), doc, s.player.currentSource, toast, s.merged ? seg?.name : undefined);
+    renderExports($('file-export'), doc, s.player.currentSource, toast, s.merged ? seg?.name : undefined);
   }
   if (s.merged) {
     markLoadingSegment($('strip-track'), -1);
@@ -579,6 +582,7 @@ function onSegmentChange(index: number, status: PlayerStatus | null): void {
   if (!s.merged && doc) drawRecords(doc.firstTimeMs, doc.gps, doc.gsensor);
   drawSpeechPanel();
   drawTalkBands();
+  if (!rangeBusy) drawRangeExport();
   updateLabels(s.player.position, index);
 }
 
@@ -661,7 +665,7 @@ function renderSessionChips(): void {
   const hhmm = (ms: number) => formatRecordedTime(ms, false).slice(11, 16);
   const chips = [
     `<button class="chip-btn${s.sessionIndex < 0 ? ' is-active' : ''}" type="button" data-session="-1">
-      ${s.dayKey.slice(5)} 전체<span class="chip-sub">${num(day.segments.length)}개</span>
+      ${formatShortDate(s.dayKey)} 전체<span class="chip-sub">${num(day.segments.length)}개</span>
     </button>`,
     ...day.sessions.map(
       (ses, i) => `<button class="chip-btn${s.sessionIndex === i ? ' is-active' : ''}" type="button" data-session="${i}">
@@ -750,6 +754,128 @@ seekEl.addEventListener('pointerup', commitSeek);
 $('btn-fit-map').addEventListener('click', () => {
   if (!map?.fitAll()) toast('표시할 경로가 없습니다');
 });
+
+// ── 구간 내보내기 ────────────────────────────────────
+
+/** 사용자가 고른 시간 구간. 세션이 바뀌면 다시 잡는다. */
+let exportRange: TimeRange | null = null;
+let rangeBusy: RangeKind | null = null;
+let rangeProgress = 0;
+let rangeNote = '';
+
+/** 세션을 열 때 기본값 — 현재 파일 */
+function resetExportRange(): void {
+  const s = session;
+  if (!s || s.lib.segments.length === 0) { exportRange = null; return; }
+  const seg = s.lib.segments[Math.max(0, s.player.segmentIndex)];
+  exportRange = { fromMs: seg.startMs, toMs: seg.endMs };
+}
+
+/**
+ * `HH:MM:SS` 입력을 절대 시각으로.
+ * 시각만 받으므로 어느 날인지는 기준 시각에서 가져오고,
+ * 자정을 넘어가는 운행이면 하루를 더한다.
+ */
+function timeToAbs(value: string, anchorMs: number): number | null {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
+  if (!m) return null;
+  const d = new Date(anchorMs);
+  const at = Date.UTC(
+    d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(),
+    Number(m[1]), Number(m[2]), Number(m[3] ?? 0),
+  );
+  const s = session;
+  // 운행이 자정을 넘으면 "00:30"은 다음 날이다
+  if (s && at < s.lib.startMs - 12 * 3600_000) return at + 86_400_000;
+  return at;
+}
+
+function drawRangeExport(): void {
+  const s = session;
+  const el = $('range-export');
+  if (!s) { el.innerHTML = ''; return; }
+  if (!exportRange) resetExportRange();
+  if (!exportRange) { el.innerHTML = ''; return; }
+
+  renderRangeExport(el, {
+    range: exportRange,
+    segments: s.lib.segments,
+    busy: rangeBusy,
+    progress: rangeProgress,
+    progressNote: rangeNote,
+  }, {
+    onPickNow: (edge) => {
+      if (!exportRange) return;
+      const now = s.player.position;
+      if (edge === 'from') {
+        exportRange = { fromMs: now, toMs: Math.max(now + 1000, exportRange.toMs) };
+      } else {
+        exportRange = { fromMs: Math.min(exportRange.fromMs, now - 1000), toMs: now };
+      }
+      drawRangeExport();
+    },
+    onEditTime: (edge, value) => {
+      if (!exportRange) return;
+      const at = timeToAbs(value, edge === 'from' ? exportRange.fromMs : exportRange.toMs);
+      if (at === null) { toast('시각 형식이 올바르지 않습니다 (HH:MM:SS)'); drawRangeExport(); return; }
+      exportRange = edge === 'from'
+        ? { ...exportRange, fromMs: at }
+        : { ...exportRange, toMs: at };
+      drawRangeExport();
+    },
+    onPreset: (preset) => {
+      if (!exportRange) return;
+      if (preset === 'file') { resetExportRange(); drawRangeExport(); return; }
+      if (preset === 'session') {
+        exportRange = { fromMs: s.lib.startMs, toMs: s.lib.endMs };
+        drawRangeExport();
+        return;
+      }
+      exportRange = { fromMs: exportRange.fromMs, toMs: exportRange.fromMs + preset * 60_000 };
+      drawRangeExport();
+    },
+    onExport: (kind) => void runRangeExport(kind),
+  });
+}
+
+async function runRangeExport(kind: RangeKind): Promise<void> {
+  const s = session;
+  if (!s || !exportRange || rangeBusy) return;
+  const range = exportRange;
+
+  rangeBusy = kind;
+  rangeProgress = 0;
+  rangeNote = '';
+  drawRangeExport();
+  try {
+    const result = await buildRange(kind, s.lib.segments, s.loader, range, (p) => {
+      rangeProgress = p.ratio * 100;
+      rangeNote = `${p.name} (${p.index}/${p.total})`;
+      drawRangeExport();
+    });
+
+    const name = rangeFileName(range, kind);
+    const url = URL.createObjectURL(result.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+    // 키프레임 때문에 실제 시작이 이를 수 있다 — 숨기지 않고 알린다
+    const lead = Math.round((range.fromMs - result.actualFromMs) / 100) / 10;
+    toast(lead >= 0.1
+      ? `${name} 저장 · ${bytes(result.blob.size)} (키프레임 때문에 ${lead}초 일찍 시작)`
+      : `${name} 저장 · ${bytes(result.blob.size)}`);
+  } catch (e) {
+    toast(`${RANGE_LABEL[kind]} 내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    rangeBusy = null;
+    drawRangeExport();
+  }
+}
 
 // ── 대화(말한 구간) ──────────────────────────────────
 
@@ -1102,6 +1228,7 @@ document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
     if (tab.dataset.tab === 'map') map?.invalidate();
     if (tab.dataset.tab === 'sensor') charts?.resize();
     if (tab.dataset.tab === 'speech') drawSpeechPanel();
+    if (tab.dataset.tab === 'export') drawRangeExport();
   });
 });
 

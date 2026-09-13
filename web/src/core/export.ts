@@ -102,7 +102,7 @@ export function buildSummaryJson(doc: JdrDocument): string {
  */
 const EXPORT_CHUNK = 8 << 20;
 
-class BlobCollector {
+export class BlobCollector {
   private parts: BlobPart[] = [];
   private buf = new Uint8Array(EXPORT_CHUNK);
   private used = 0;
@@ -132,7 +132,7 @@ class BlobCollector {
 }
 
 /** 오래 도는 작업 중 화면이 멈추지 않도록 양보한다 */
-const yieldToUi = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+export const yieldToUi = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 /** 채널별 H.264 Annex-B elementary stream을 그대로 이어붙인다. */
 export async function extractH264(

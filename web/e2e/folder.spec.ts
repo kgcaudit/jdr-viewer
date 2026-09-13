@@ -662,3 +662,84 @@ test('즐겨찾기를 지울 수 있다', async ({ page }) => {
   await expect(page.locator('#bm-panel')).toContainText('아직 없습니다');
   await expect(page.locator('#btn-bookmark')).toHaveText('☆');
 });
+
+test('시간 구간을 지정해 여러 파일을 하나로 내보낸다', async ({ page }, testInfo) => {
+  await openMorningSession(page);
+  await page.locator('.tab[data-tab="export"]').click();
+  const panel = page.locator('#range-export');
+  await expect(panel).toBeVisible();
+
+  // 기본값은 현재 파일
+  await expect(panel.locator('.rng-sum')).toContainText('원본 1개 파일');
+
+  // 운행 전체로 넓히면 파일 3개에 걸친다
+  await panel.locator('[data-preset="session"]').click();
+  await expect(panel.locator('.rng-sum')).toContainText('원본 3개 파일');
+
+  // 파일명이 사람이 읽을 수 있는 시각 규칙이다
+  const names = await panel.locator('.export-item span').first().textContent();
+  expect(names).toMatch(/^\d{6}_\d{6}-\d{6}_Front\.h264$/);
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    panel.locator('[data-range="front"]').click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^\d{6}_\d{6}-\d{6}_Front\.h264$/);
+
+  const saved = join(testInfo.outputDir, download.suggestedFilename());
+  await download.saveAs(saved);
+  const { statSync } = await import('node:fs');
+  // 파일 3개를 이어 붙였으니 하나짜리보다 커야 한다
+  expect(statSync(saved).size).toBeGreaterThan(10_000);
+});
+
+test('구간을 좁히면 결과도 작아진다', async ({ page }, testInfo) => {
+  await openMorningSession(page);
+  await page.locator('.tab[data-tab="export"]').click();
+  const panel = page.locator('#range-export');
+  const { statSync } = await import('node:fs');
+
+  const grab = async (): Promise<number> => {
+    const [d] = await Promise.all([
+      page.waitForEvent('download'),
+      panel.locator('[data-range="front"]').click(),
+    ]);
+    const at = join(testInfo.outputDir, `${Date.now()}_${d.suggestedFilename()}`);
+    await d.saveAs(at);
+    return statSync(at).size;
+  };
+
+  await panel.locator('[data-preset="session"]').click();
+  const whole = await grab();
+
+  await panel.locator('[data-preset="file"]').click();
+  const one = await grab();
+
+  expect(one).toBeLessThan(whole);
+});
+
+test('끝이 시작보다 빠르면 내보내기를 막는다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('.tab[data-tab="export"]').click();
+  const panel = page.locator('#range-export');
+
+  const from = await panel.locator('#rng-from').inputValue();
+  await panel.locator('#rng-to').fill(from);
+  await panel.locator('#rng-to').dispatchEvent('change');
+
+  await expect(panel.locator('.rng-sum')).toContainText('끝이 시작보다 빠릅니다');
+  await expect(panel.locator('[data-range="front"]')).toBeDisabled();
+});
+
+test('구간 내보내기와 별개로 파일 단위 내보내기도 남아 있다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('.tab[data-tab="export"]').click();
+  await expect(page.locator('#file-export')).toContainText('현재 재생 중인 구간');
+  await expect(page.locator('#file-export')).toContainText('SHA-256');
+});
+
+test('날짜 칩이 연도까지 보여 준다', async ({ page }) => {
+  await openMorningSession(page);
+  // 09-09 가 아니라 26/09/09
+  await expect(page.locator('#session-chips')).toContainText('26/09/08 전체');
+});

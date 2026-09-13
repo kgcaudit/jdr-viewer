@@ -38,6 +38,20 @@ export function formatRecordedTime(ms: number, withMillis = true): string {
   return withMillis ? `${base}.${pad(d.getUTCMilliseconds(), 3)}` : base;
 }
 
+/**
+ * 'YYYY-MM-DD' 또는 epoch ms → `26/09/09`.
+ * `09-09`처럼 연도가 빠지면 월-일인지 일-월인지 읽는 사람이 헷갈린다.
+ */
+export function formatShortDate(value: string | number): string {
+  if (typeof value === 'string') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    return m ? `${m[1].slice(2)}/${m[2]}/${m[3]}` : value;
+  }
+  if (!Number.isFinite(value)) return '—';
+  const d = new Date(value);
+  return `${pad(d.getUTCFullYear() % 100)}/${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}`;
+}
+
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '—';
   const total = Math.floor(seconds);

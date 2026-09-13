@@ -483,3 +483,16 @@ body {
   position: absolute; top: 0; height: 4px; border-radius: 2px;
   background: #d69e2e; opacity: .9; pointer-events: none;
 }
+
+/* ── 구간 내보내기 ───────────────────────── */
+.rng-grid { display: grid; gap: 8px; margin-bottom: 10px; }
+.rng-row { display: flex; align-items: center; gap: 8px; }
+.rng-tag { flex: 0 0 34px; font-size: 13px; color: var(--muted); }
+.rng-time { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.rng-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.rng-sum {
+  margin: 0 2px 12px; font-size: 13px; font-variant-numeric: tabular-nums;
+  padding: 8px 10px; border-radius: 8px; background: var(--surface-2);
+}
+.rng-sum.status-warn { background: none; }
+.export-item span + span { display: block; }
