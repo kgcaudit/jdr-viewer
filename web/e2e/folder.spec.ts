@@ -184,18 +184,18 @@ test('작은 화면에서도 캘린더가 무너지지 않는다', async ({ page
   await expect(page.locator('.cal-grid')).toBeVisible();
 });
 
-test('인덱스 파일을 내보내 폴더에 두면 다음에 훑기를 건너뛴다', async ({ page }, testInfo) => {
+test('인덱스를 저장해 폴더에 두면 다음에 훑기를 건너뛴다', async ({ page }, testInfo) => {
   await openFolder(page);
   // 처음에는 직접 읽는다
   await expect(page.locator('#calendar')).toContainText('직접 읽음');
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.locator('#btn-export-index').click(),
+    page.locator('#btn-save-index').click(),
   ]);
   expect(download.suggestedFilename()).toBe('jdr-index.json');
 
-  // 내려받은 인덱스를 폴더에 넣는다 (사용자가 손으로 복사하는 것과 같다)
+  // 저장한 인덱스를 폴더에 넣는다 (사용자가 손으로 옮기는 것과 같다)
   const saved = join(testInfo.outputDir, 'jdr-index.json');
   await download.saveAs(saved);
   const { copyFileSync, readFileSync } = await import('node:fs');
@@ -235,7 +235,7 @@ test('파일이 바뀌면 그 파일만 다시 읽는다', async ({ page }, test
   await openFolder(page);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.locator('#btn-export-index').click(),
+    page.locator('#btn-save-index').click(),
   ]);
   const saved = join(testInfo.outputDir, 'idx.json');
   await download.saveAs(saved);
@@ -266,13 +266,13 @@ test('인덱스 뒤에 추가된 파일은 그것만 읽고, 두 번째부터는
   await openFolder(page);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.locator('#btn-export-index').click(),
+    page.locator('#btn-save-index').click(),
   ]);
   const saved = join(testInfo.outputDir, 'idx-partial.json');
   await download.saveAs(saved);
 
   const { readFileSync, writeFileSync, rmSync } = await import('node:fs');
-  // 한 행을 빼서 "인덱스를 내보낸 뒤 녹화된 파일"을 흉내낸다
+  // 한 행을 빼서 "인덱스를 저장한 뒤 녹화된 파일"을 흉내낸다
   const idx = JSON.parse(readFileSync(saved, 'utf8'));
   idx.rows = idx.rows.filter((r: unknown[]) => !String(r[0]).endsWith('00000460.jdr'));
   idx.count = idx.rows.length;
@@ -283,13 +283,13 @@ test('인덱스 뒤에 추가된 파일은 그것만 읽고, 두 번째부터는
     const p2 = await fresh.newPage();
     await p2.goto('http://127.0.0.1:5173/');
 
-    // 첫 열기: 인덱스에 없는 1개만 직접 읽고, 다시 내보내라고 알린다
+    // 첫 열기: 인덱스에 없는 1개만 직접 읽고, 다시 저장하라고 알린다
     await p2.locator('#folder-input').setInputFiles(dir);
     await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
     await expect(p2.locator('#calendar')).toContainText('인덱스 파일 9개');
     await expect(p2.locator('#calendar')).toContainText('직접 읽음 1개');
     await expect(p2.locator('#calendar')).toContainText('인덱스에 없는 파일이 1개');
-    await expect(p2.locator('#btn-export-index')).toHaveClass(/btn-primary/);
+    await expect(p2.locator('#btn-save-index')).toHaveClass(/btn-primary/);
 
     // 두 번째 열기: 인덱스 파일이 그대로여도 캐시가 그 1개를 받아준다
     await p2.locator('#folder-input').setInputFiles(dir);
@@ -302,11 +302,11 @@ test('인덱스 뒤에 추가된 파일은 그것만 읽고, 두 번째부터는
   }
 });
 
-test('다시 내보내면 인덱스 경고가 사라진다', async ({ page }, testInfo) => {
+test('다시 저장하면 인덱스 경고가 사라진다', async ({ page }, testInfo) => {
   await openFolder(page);
   const [first] = await Promise.all([
     page.waitForEvent('download'),
-    page.locator('#btn-export-index').click(),
+    page.locator('#btn-save-index').click(),
   ]);
   const saved = join(testInfo.outputDir, 'idx-warn.json');
   await first.saveAs(saved);
@@ -327,9 +327,9 @@ test('다시 내보내면 인덱스 경고가 사라진다', async ({ page }, te
 
     const [again] = await Promise.all([
       p2.waitForEvent('download'),
-      p2.locator('#btn-export-index').click(),
+      p2.locator('#btn-save-index').click(),
     ]);
-    // 새로 내보낸 인덱스에는 빠졌던 파일까지 들어 있다
+    // 새로 저장한 인덱스에는 빠졌던 파일까지 들어 있다
     const out = join(testInfo.outputDir, 'idx-again.json');
     await again.saveAs(out);
     expect(JSON.parse(readFileSync(out, 'utf8')).count).toBe(10);

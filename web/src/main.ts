@@ -275,7 +275,7 @@ async function openFolder(all: File[]): Promise<void> {
 
   // ② 인덱스에 없는 파일은 브라우저 캐시, ③ 그것도 없으면 헤더를 직접 읽는다.
   //
-  // 인덱스 파일이 있어도 캐시는 반드시 같이 본다. 인덱스는 내보낸 시점에 멈춰
+  // 인덱스 파일이 있어도 캐시는 반드시 같이 본다. 인덱스는 저장한 시점에 멈춰
   // 있으므로 그 뒤에 녹화된 파일은 인덱스에 없는데, 캐시를 건너뛰면 그 파일들을
   // 열 때마다 다시 읽게 된다.
   const keys = jdrFiles.map(cacheKeyOf);
@@ -343,7 +343,7 @@ async function openFolder(all: File[]): Promise<void> {
   // 가장 최근 달부터 보여준다
   folderState.monthIndex = Math.max(0, folderState.calendar.months.length - 1);
   if (stats.missingFromIndex > 0) {
-    toast(`인덱스에 없는 새 파일 ${num(stats.missingFromIndex)}개를 읽었습니다 — 인덱스를 다시 내보내세요`);
+    toast(`인덱스에 없는 새 파일 ${num(stats.missingFromIndex)}개를 읽었습니다 — 인덱스를 다시 저장하세요`);
   } else if (stats.fromIndexFile > 0) {
     toast(`인덱스 파일에서 ${num(stats.fromIndexFile)}개를 읽어 훑기를 건너뛰었습니다`);
   } else if (stats.fromCache > 0) {
@@ -399,12 +399,17 @@ function drawCalendar(): void {
       fs.selectedDay = fs.calendar.byKey.has(fs.selectedDay) ? fs.selectedDay : '';
       drawCalendar();
     },
-    onExportIndex: () => exportIndexFile(),
+    onSaveIndex: () => saveIndexFile(),
   }, fs.stats);
 }
 
-/** 훑은 결과를 파일로 내보낸다. 폴더에 넣어두면 다음에 열 때 훑기를 건너뛴다. */
-function exportIndexFile(): void {
+/**
+ * 훑은 결과를 인덱스 파일로 저장한다. 폴더에 넣어두면 다음에 열 때 훑기를 건너뛴다.
+ *
+ * 브라우저는 폴더에 직접 쓸 수 없으므로 실제 동작은 다운로드다.
+ * 사용자가 그 파일을 폴더로 옮겨야 한다 — 그래서 안내 문구가 붙는다.
+ */
+function saveIndexFile(): void {
   const fs = folderState;
   if (!fs) return;
   const items = fs.allSegments
@@ -420,8 +425,8 @@ function exportIndexFile(): void {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  toast(`${INDEX_FILE_NAME} 저장 · ${num(items.length)}개 · ${bytes(blob.size)} — 이 폴더에 넣어두세요`);
-  // 방금 내보낸 파일에는 새 파일까지 들어 있으므로 경고를 거둔다
+  toast(`${INDEX_FILE_NAME} 저장 · ${num(items.length)}개 · ${bytes(blob.size)} — 다운로드 폴더에서 이 폴더로 옮겨 두세요`);
+  // 방금 저장한 파일에는 새 파일까지 들어 있으므로 경고를 거둔다
   if (fs.stats.missingFromIndex > 0) {
     fs.stats.missingFromIndex = 0;
     fs.stats.indexError = undefined;

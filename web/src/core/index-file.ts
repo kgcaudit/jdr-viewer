@@ -6,11 +6,11 @@
  *  - 브라우저 데이터를 지우면 사라진다
  *  - 단일 HTML 파일을 다른 위치로 옮기면 origin이 달라져 날아간다
  *
- * 그래서 훑은 결과를 **파일로 내보내** 폴더에 함께 두면, 다음에 열 때 그걸 읽고
+ * 그래서 훑은 결과를 **파일로 저장해** 폴더에 함께 두면, 다음에 열 때 그걸 읽고
  * 헤더 훑기를 통째로 건너뛴다. 사람이 열어볼 수 있는 JSON이라
  * "이 폴더에 무엇이 언제 있었는지"의 기록으로도 쓸 수 있다.
  *
- * 브라우저는 폴더에 직접 쓸 수 없으므로 내보내기는 다운로드로 하고,
+ * 브라우저는 폴더에 직접 쓸 수 없으므로 저장은 다운로드로 하고,
  * 사용자가 그 파일을 폴더에 복사해 두면 이후로는 자동으로 인식된다.
  */
 import type { SegmentInfo, TimeSource } from './segment';
@@ -95,7 +95,7 @@ export function parseIndexFile(text: string): Map<string, IndexEntry> {
   }
   if (obj.version < INDEX_VERSION) {
     throw new IndexFileError(
-      `인덱스 형식이 갱신되었습니다 (v${obj.version} → v${INDEX_VERSION}). 다시 읽은 뒤 내보내 주세요`,
+      `인덱스 형식이 갱신되었습니다 (v${obj.version} → v${INDEX_VERSION}). 다시 읽은 뒤 저장해 주세요`,
     );
   }
   if (!Array.isArray(obj.rows)) {

@@ -17,7 +17,7 @@ export interface CalendarHandlers {
   onPickSession(key: string, sessionIndex: number): void;
   onToggleFolder(folder: string, selected: boolean): void;
   onMonthChange(index: number): void;
-  onExportIndex(): void;
+  onSaveIndex(): void;
 }
 
 /** 이번에 파일들을 어디서 읽어왔는지 */
@@ -29,7 +29,7 @@ export interface LoadStats {
   indexError?: string;
   /** 폴더에 인덱스 파일이 있었는지 (읽기에 성공한 경우만) */
   hadIndexFile: boolean;
-  /** 그 인덱스에 없던 파일 수 — 대개 인덱스를 내보낸 뒤 새로 녹화된 것들 */
+  /** 그 인덱스에 없던 파일 수 — 대개 인덱스를 저장한 뒤 새로 녹화된 것들 */
   missingFromIndex: number;
 }
 
@@ -43,27 +43,27 @@ function loadSection(stats: LoadStats): string {
     ? `<p class="status-warn small" style="margin:0 0 8px">${escapeHtml(stats.indexError)}</p>`
     : '';
 
-  // 인덱스는 내보낸 시점에 멈춰 있다. 그 뒤에 녹화된 파일은 인덱스에 없으므로
+  // 인덱스는 저장한 시점에 멈춰 있다. 그 뒤에 녹화된 파일은 인덱스에 없으므로
   // 매번 직접 읽게 되는데, 사용자는 그 사실을 알 길이 없다. 그래서 알려준다.
   const stale = stats.missingFromIndex > 0;
   const staleNote = stale
     ? `<p class="status-warn small" style="margin:0 0 8px">인덱스에 없는 파일이 ${num(stats.missingFromIndex)}개 있습니다
-       (인덱스를 내보낸 뒤 녹화된 파일). 아래에서 다시 내보내 폴더의
+       (인덱스를 저장한 뒤 녹화된 파일). 아래에서 다시 저장해 폴더의
        ${escapeHtml(INDEX_FILE_NAME)}을 덮어쓰면 다음부터 건너뜁니다.</p>`
     : '';
 
   const hint = stale
-    ? `새로 내보내면 기존 것까지 합쳐 ${num(stats.total)}개가 한 파일로 나옵니다.`
+    ? `다시 저장하면 기존 것까지 합쳐 ${num(stats.total)}개가 한 파일로 나옵니다.`
     : stats.fromIndexFile === stats.total && stats.total > 0
       ? '인덱스 파일 덕분에 헤더 훑기를 건너뛰었습니다.'
-      : '내보낸 파일을 이 폴더에 두면, 다음에 열 때 헤더 훑기를 건너뜁니다. 원본 JDR은 건드리지 않습니다.';
+      : '브라우저는 폴더에 직접 쓸 수 없어 다운로드 폴더에 저장됩니다. 그 파일을 이 폴더로 옮겨 두면 다음에 열 때 헤더 훑기를 건너뜁니다. 원본 JDR은 건드리지 않습니다.';
 
   return `
     <p class="section-title">불러온 방식</p>
     ${err}
     ${staleNote}
     <p class="muted small" style="margin:0 0 8px">${parts.join(' · ') || '없음'}</p>
-    <button class="btn${stale ? ' btn-primary' : ''}" type="button" id="btn-export-index">인덱스 파일 ${stale ? '다시 ' : ''}내보내기 (${escapeHtml(INDEX_FILE_NAME)})</button>
+    <button class="btn${stale ? ' btn-primary' : ''}" type="button" id="btn-save-index">인덱스 ${stale ? '다시 ' : ''}저장 (${escapeHtml(INDEX_FILE_NAME)})</button>
     <p class="muted small" style="margin:8px 0 0">${hint}</p>`;
 }
 
@@ -176,5 +176,5 @@ export function renderCalendar(
   el.querySelectorAll<HTMLInputElement>('[data-folder]').forEach((c) =>
     c.addEventListener('change', () => handlers.onToggleFolder(c.dataset.folder ?? '', c.checked)),
   );
-  el.querySelector<HTMLButtonElement>('#btn-export-index')?.addEventListener('click', () => handlers.onExportIndex());
+  el.querySelector<HTMLButtonElement>('#btn-save-index')?.addEventListener('click', () => handlers.onSaveIndex());
 }
