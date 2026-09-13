@@ -419,3 +419,40 @@ body {
 .btn, .seg-row, .chip-btn, .session-row, .cal-cell, .folder-item, .linklike {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* ── 즐겨찾기 ───────────────────────────── */
+.btn-star { min-width: 44px; padding: 7px 10px; display: inline-flex; align-items: center; gap: 5px; }
+.btn-star.is-empty { color: var(--muted); }
+.star-count { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+#btn-bookmark.is-on { color: #d69e2e; }
+
+.bm-overlay {
+  position: fixed; inset: 0; z-index: 50; display: flex;
+  align-items: flex-start; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 12px 16px;
+  background: rgba(0, 0, 0, .45);
+}
+.bm-panel {
+  width: 100%; max-width: 520px; max-height: min(80vh, 640px); overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px 16px 16px; box-shadow: var(--shadow);
+}
+.bm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.bm-empty { margin: 12px 2px; }
+.bm-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.bm-row { display: flex; align-items: stretch; gap: 6px; }
+.bm-main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  text-align: left; padding: 8px 10px; min-height: 46px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: inherit; font: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.bm-main:active { background: var(--surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .bm-main:hover { background: var(--surface-2); border-color: var(--accent); }
+}
+.bm-label { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-meta { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-act { flex: 0 0 auto; }
+.bm-foot { display: flex; flex-wrap: wrap; gap: 8px; }

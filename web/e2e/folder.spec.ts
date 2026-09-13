@@ -546,3 +546,119 @@ test('빈 구간을 눌러도 녹화가 있는 시각으로만 간다', async ({
   expect(text).toContain('22:24');
   await expect(page.locator('#file-note')).toContainText('구간 4/6', { timeout: 20_000 });
 });
+
+test('즐겨찾기를 담고 목록에서 바로 돌아간다', async ({ page }) => {
+  await openMorningSession(page);
+  const star = page.locator('#btn-bookmarks');
+  await expect(star).toBeVisible();
+  await expect(page.locator('#bm-count')).toHaveText('0');
+
+  // 3번째 구간으로 옮긴 뒤 담는다
+  await page.locator('#btn-next-file').click();
+  await page.locator('#btn-next-file').click();
+  await expect(page.locator('#file-note')).toContainText('구간 3/3', { timeout: 20_000 });
+  await page.locator('#btn-bookmark').click();
+  await expect(page.locator('#btn-bookmark')).toHaveText('★');
+  await expect(page.locator('#bm-count')).toHaveText('1');
+
+  // 1번째 구간으로 돌아가면 별이 빈다.
+  // ⏮ 는 "조금 지났으면 현재 파일 처음으로"라 한 번에 한 칸씩만 확인하며 누른다.
+  for (const want of ['구간 3/3', '구간 2/3', '구간 1/3']) {
+    await page.locator('#btn-prev-file').click();
+    await expect(page.locator('#file-note')).toContainText(want, { timeout: 20_000 });
+  }
+  await expect(page.locator('#btn-bookmark')).toHaveText('☆');
+
+  // 목록에서 누르면 담아둔 구간으로 간다
+  await star.click();
+  await expect(page.locator('#bm-panel')).toBeVisible();
+  await page.locator('#bm-panel [data-goto]').first().click();
+  await expect(page.locator('#bm-overlay')).toBeHidden();
+  await expect(page.locator('#file-note')).toContainText('구간 3/3', { timeout: 20_000 });
+  await expect(page.locator('#btn-bookmark')).toHaveText('★');
+});
+
+test('다른 날짜의 즐겨찾기도 캘린더를 거치지 않고 간다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('#btn-bookmark').click();
+  await expect(page.locator('#bm-count')).toHaveText('1');
+
+  // 9/9로 옮긴다
+  await page.locator('#btn-back-calendar').click();
+  await page.locator('[data-day="2026-09-09"]').click();
+  // 하단 운행 칩과 이름이 겹치므로 캘린더 안의 목록을 집는다
+  await page.locator('#calendar [data-session="0"]').click();
+  await expect(page.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+  await expect(page.locator('#recorded-time')).toContainText('2026-09-09');
+
+  // 즐겨찾기를 누르면 9/8 오전 운행이 다시 열린다
+  await page.locator('#btn-bookmarks').click();
+  await page.locator('#bm-panel [data-goto]').first().click();
+  await expect(page.locator('#recorded-time')).toContainText('2026-09-08', { timeout: 60_000 });
+  await expect(page.locator('#btn-bookmark')).toHaveText('★');
+});
+
+test('즐겨찾기를 파일로 저장하고 다시 불러온다', async ({ page }, testInfo) => {
+  await openMorningSession(page);
+  await page.locator('#btn-bookmark').click();
+  await page.locator('#btn-next-file').click();
+  await expect(page.locator('#file-note')).toContainText('구간 2/3', { timeout: 20_000 });
+  await page.locator('#btn-bookmark').click();
+  await expect(page.locator('#bm-count')).toHaveText('2');
+
+  await page.locator('#btn-bookmarks').click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#bm-save').click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('jdr-bookmarks.json');
+  const saved = join(testInfo.outputDir, 'jdr-bookmarks.json');
+  await download.saveAs(saved);
+
+  const { readFileSync } = await import('node:fs');
+  const parsed = JSON.parse(readFileSync(saved, 'utf8'));
+  expect(parsed.format).toBe('jdr-viewer-bookmarks');
+  expect(parsed.count).toBe(2);
+  // 어느 파일의 몇 초인지가 남아야 증거로 쓸 수 있다
+  expect(parsed.marks[0]).toHaveProperty('path');
+  expect(parsed.marks[0]).toHaveProperty('relMs');
+
+  // 즐겨찾기가 없는 새 브라우저에서 불러온다
+  const fresh = await page.context().browser()!.newContext();
+  const p2 = await fresh.newPage();
+  try {
+    await p2.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+    await expect(p2.locator('#bm-count')).toHaveText('0');
+
+    await p2.locator('#btn-bookmarks').click();
+    await expect(p2.locator('#bm-overlay')).toBeVisible();
+    await p2.locator('#bm-file-input').setInputFiles({
+      name: 'jdr-bookmarks.json',
+      mimeType: 'application/json',
+      buffer: readFileSync(saved),
+    });
+    await expect(p2.locator('#toast')).toContainText('2개를 불러왔습니다');
+    await expect(p2.locator('#bm-count')).toHaveText('2');
+
+    // 불러온 즐겨찾기로 바로 갈 수 있다
+    await p2.locator('#bm-panel [data-goto]').first().click();
+    await expect(p2.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+    await expect(p2.locator('#file-note')).toContainText('구간 1/3');
+  } finally {
+    await fresh.close();
+  }
+});
+
+test('즐겨찾기를 지울 수 있다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('#btn-bookmark').click();
+  await expect(page.locator('#bm-count')).toHaveText('1');
+
+  await page.locator('#btn-bookmarks').click();
+  await page.locator('#bm-panel [data-remove]').first().click();
+  await expect(page.locator('#bm-count')).toHaveText('0');
+  await expect(page.locator('#bm-panel')).toContainText('아직 없습니다');
+  await expect(page.locator('#btn-bookmark')).toHaveText('☆');
+});

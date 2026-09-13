@@ -17,12 +17,18 @@
       </div>
       <div class="topbar-actions">
         <button id="btn-back-calendar" class="btn" type="button" hidden>‹ <span class="lbl-full">날짜 선택</span><span class="lbl-short">날짜</span></button>
+        <button id="btn-bookmarks" class="btn btn-star" type="button" hidden aria-label="즐겨찾기" title="즐겨찾기">★<span id="bm-count" class="star-count">0</span></button>
         <span class="privacy" title="파일은 브라우저 안에서만 처리됩니다">🔒 업로드 없음</span>
         <button id="btn-open-folder" class="btn" type="button">폴더<span class="lbl-full"> 열기</span></button>
         <button id="btn-open" class="btn btn-primary" type="button">파일<span class="lbl-full"> 열기</span></button>
       </div>
     </header>
 
+    <div id="bm-overlay" class="bm-overlay" hidden>
+      <div id="bm-panel" class="bm-panel" role="dialog" aria-modal="true" aria-label="즐겨찾기"></div>
+    </div>
+
+    <input id="bm-file-input" type="file" accept=".json,application/json" hidden />
     <input id="file-input" type="file" accept=".jdr,application/octet-stream" hidden />
     <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
 
@@ -104,6 +110,7 @@
             <option value="4">4x</option>
           </select>
           <button id="btn-mute" class="btn btn-icon" type="button" aria-label="음소거">🔊</button>
+          <button id="btn-bookmark" class="btn btn-icon" type="button" aria-label="이 지점 즐겨찾기" title="이 지점 즐겨찾기">☆</button>
         </div>
         <p id="file-note" class="file-note"></p>
         <p id="debug-note" class="file-note" hidden></p>

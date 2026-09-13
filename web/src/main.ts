@@ -9,6 +9,10 @@ import {
   parseIndexFile, serializeIndexFile, type IndexEntry,
 } from './core/index-file';
 import { cacheKeyOf, fromCacheValue, ProbeCache, toCacheValue } from './core/probe-cache';
+import {
+  BOOKMARK_FILE_NAME, BookmarkStore, bookmarkAt, bookmarkId, defaultLabel,
+  mergeBookmarks, parseBookmarks, serializeBookmarks, sortBookmarks, type Bookmark,
+} from './core/bookmarks';
 import { probeSegment, type SegmentInfo } from './core/segment';
 import { formatDuration, formatRecordedTime } from './core/time';
 import type { JdrDocument, ParseProgress } from './core/types';
@@ -28,6 +32,7 @@ import {
   updateStripCursor, type FolderStat,
 } from './ui/segments';
 import { attachStripScrub } from './ui/strip-scrub';
+import { renderBookmarkPanel } from './ui/bookmarks';
 import { bytes, num } from './ui/format';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -40,7 +45,7 @@ const views = {
   main: $('view-main'),
 };
 
-const CONTROL_IDS = ['btn-play', 'btn-prev-file', 'btn-next-file', 'btn-back10', 'btn-fwd10', 'seek', 'speed', 'btn-mute'];
+const CONTROL_IDS = ['btn-play', 'btn-prev-file', 'btn-next-file', 'btn-back10', 'btn-fwd10', 'seek', 'speed', 'btn-mute', 'btn-bookmark'];
 const SKIP_MS = 10_000;
 
 /** 폴더 전체에 대한 상태 — 날짜를 바꿔도 유지된다 */
@@ -91,6 +96,8 @@ const debugMode = new URLSearchParams(location.search).get('debug') === '1';
 function showView(name: keyof typeof views): void {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
   $('btn-back-calendar').hidden = !(name === 'main' && folderState !== null);
+  // 즐겨찾기는 무엇이든 열려 있어야 의미가 있다
+  $('btn-bookmarks').hidden = !(name === 'main' || name === 'calendar');
 }
 
 function setControlsEnabled(enabled: boolean): void {
@@ -586,6 +593,7 @@ function updateLabels(absMs: number, segIndex: number): void {
     : '';
 
   if (s.merged) updateStripCursor($('strip-track'), stripLayout, absMs);
+  refreshBookmarkUi();
   const fix = map?.syncTo(absMs) ?? null;
   charts?.syncTo((absMs - s.lib.startMs) / 1000);
 
@@ -737,6 +745,180 @@ seekEl.addEventListener('pointerup', commitSeek);
 
 $('btn-fit-map').addEventListener('click', () => {
   if (!map?.fitAll()) toast('표시할 경로가 없습니다');
+});
+
+// ── 즐겨찾기 ────────────────────────────────────────
+
+const bookmarkStore = new BookmarkStore();
+let bookmarks: Bookmark[] = [];
+
+void bookmarkStore.all().then((list) => {
+  bookmarks = list;
+  refreshBookmarkUi(true);
+});
+
+/** 지금 재생 중인 지점을 즐겨찾기 형태로 적는다 */
+function currentPoint(): Omit<Bookmark, 'label' | 'createdAt'> | null {
+  const s = session;
+  if (!s) return null;
+  const seg = s.lib.segments[s.player.segmentIndex];
+  if (!seg) return null;
+  const relMs = Math.max(0, s.player.filePosition);
+  return {
+    id: bookmarkId(seg.path, relMs),
+    absMs: s.player.position,
+    dayKey: s.dayKey,
+    path: seg.path,
+    name: seg.name,
+    relMs,
+  };
+}
+
+/**
+ * 별 표시를 갱신한다.
+ *
+ * 재생 중에는 초당 60번 불리므로, **값이 실제로 바뀔 때만** DOM을 건드린다.
+ * (열려 있는 목록을 매 프레임 다시 그리면 스크롤이 튄다)
+ */
+let lastStarState = '';
+function refreshBookmarkUi(force = false): void {
+  const here = currentPoint();
+  const on = here ? bookmarkAt(bookmarks, here.path, here.relMs) : null;
+  const state = `${bookmarks.length}|${on?.id ?? ''}`;
+  if (state === lastStarState && !force) return;
+  const listChanged = lastStarState.split('|')[0] !== String(bookmarks.length);
+  lastStarState = state;
+
+  $('bm-count').textContent = String(bookmarks.length);
+  $('btn-bookmarks').classList.toggle('is-empty', bookmarks.length === 0);
+
+  const add = $('btn-bookmark');
+  add.textContent = on ? '★' : '☆';
+  add.classList.toggle('is-on', !!on);
+  add.setAttribute('aria-label', on ? '즐겨찾기 해제' : '이 지점 즐겨찾기');
+
+  if (!$('bm-overlay').hidden && (listChanged || force)) drawBookmarkPanel();
+}
+
+function drawBookmarkPanel(): void {
+  renderBookmarkPanel($('bm-panel'), bookmarks, bookmarkStore.persistent, {
+    onGoto: (id) => void gotoBookmark(id),
+    onRename: (id) => {
+      const b = bookmarks.find((x) => x.id === id);
+      if (!b) return;
+      const next = prompt('즐겨찾기 이름', b.label);
+      if (next === null) return;
+      b.label = next.trim() || defaultLabel(b.absMs);
+      void bookmarkStore.put([b]);
+      refreshBookmarkUi(true);
+    },
+    onRemove: (id) => {
+      bookmarks = bookmarks.filter((x) => x.id !== id);
+      void bookmarkStore.remove(id);
+      refreshBookmarkUi(true);
+    },
+    onSaveFile: () => saveBookmarkFile(),
+    onLoadFile: () => $<HTMLInputElement>('bm-file-input').click(),
+    onClose: () => closeBookmarkPanel(),
+  });
+}
+
+function openBookmarkPanel(): void {
+  $('bm-overlay').hidden = false;
+  drawBookmarkPanel();
+}
+
+function closeBookmarkPanel(): void {
+  $('bm-overlay').hidden = true;
+}
+
+function toggleBookmarkHere(): void {
+  const here = currentPoint();
+  if (!here) { toast('재생 중일 때만 담을 수 있습니다'); return; }
+
+  const existing = bookmarkAt(bookmarks, here.path, here.relMs);
+  if (existing) {
+    bookmarks = bookmarks.filter((b) => b.id !== existing.id);
+    void bookmarkStore.remove(existing.id);
+    toast('즐겨찾기에서 뺐습니다');
+  } else {
+    const b: Bookmark = { ...here, label: defaultLabel(here.absMs), createdAt: Date.now() };
+    bookmarks = sortBookmarks([...bookmarks, b]);
+    void bookmarkStore.put([b]);
+    toast(`즐겨찾기에 담았습니다 — ${b.label}`);
+  }
+  refreshBookmarkUi(true);
+}
+
+/**
+ * 즐겨찾기 지점으로 간다.
+ * 지금 열린 운행 밖이면 그 날짜·운행을 먼저 연다 — 캘린더로 돌아갈 필요가 없다.
+ */
+async function gotoBookmark(id: string): Promise<void> {
+  const b = bookmarks.find((x) => x.id === id);
+  if (!b) return;
+  closeBookmarkPanel();
+
+  const s = session;
+  if (s?.lib.segments.some((x) => x.path === b.path)) {
+    await s.player.seek(b.absMs);
+    return;
+  }
+
+  const fs = folderState;
+  if (fs) {
+    for (const [key, day] of fs.calendar.byKey) {
+      const si = day.sessions.findIndex((ss) => ss.segments.some((x) => x.path === b.path));
+      if (si < 0) continue;
+      await openDay(key, si);
+      await session?.player.seek(b.absMs);
+      return;
+    }
+    toast('이 즐겨찾기의 파일을 지금 열린 폴더에서 찾지 못했습니다 (폴더 선택을 확인하세요)');
+    return;
+  }
+  toast(`이 즐겨찾기는 ${b.name}에 있습니다. 그 파일이 든 폴더를 열어 주세요`);
+}
+
+function saveBookmarkFile(): void {
+  if (bookmarks.length === 0) { toast('저장할 즐겨찾기가 없습니다'); return; }
+  const blob = new Blob([serializeBookmarks(bookmarks)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = BOOKMARK_FILE_NAME;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  toast(`${BOOKMARK_FILE_NAME} 저장 · ${num(bookmarks.length)}개`);
+}
+
+$('btn-bookmarks').addEventListener('click', () => {
+  if ($('bm-overlay').hidden) openBookmarkPanel();
+  else closeBookmarkPanel();
+});
+$('btn-bookmark').addEventListener('click', () => toggleBookmarkHere());
+$('bm-overlay').addEventListener('click', (e) => {
+  // 패널 바깥(어두운 곳)을 누르면 닫는다
+  if (e.target === $('bm-overlay')) closeBookmarkPanel();
+});
+
+$<HTMLInputElement>('bm-file-input').addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    const incoming = parseBookmarks(await file.text());
+    const { list, added } = mergeBookmarks(bookmarks, incoming);
+    bookmarks = list;
+    await bookmarkStore.put(incoming);
+    toast(added > 0 ? `${num(added)}개를 불러왔습니다` : '새로 들어온 즐겨찾기가 없습니다');
+    refreshBookmarkUi(true);
+  } catch (err) {
+    toast(err instanceof Error ? err.message : String(err));
+  }
 });
 
 /**
