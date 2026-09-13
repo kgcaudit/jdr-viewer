@@ -5,6 +5,7 @@
  */
 import type { CalendarIndex, DayEntry, MonthKey } from '../core/calendar';
 import { monthGrid } from '../core/calendar';
+import { INDEX_FILE_NAME } from '../core/index-file';
 import { formatDuration, formatRecordedTime } from '../core/time';
 import { bytes, escapeHtml, num } from './format';
 import type { FolderStat } from './segments';
@@ -16,6 +17,38 @@ export interface CalendarHandlers {
   onPickSession(key: string, sessionIndex: number): void;
   onToggleFolder(folder: string, selected: boolean): void;
   onMonthChange(index: number): void;
+  onExportIndex(): void;
+}
+
+/** 이번에 파일들을 어디서 읽어왔는지 */
+export interface LoadStats {
+  total: number;
+  fromIndexFile: number;
+  fromCache: number;
+  probed: number;
+  indexError?: string;
+}
+
+function loadSection(stats: LoadStats): string {
+  const parts: string[] = [];
+  if (stats.fromIndexFile > 0) parts.push(`인덱스 파일 ${num(stats.fromIndexFile)}개`);
+  if (stats.fromCache > 0) parts.push(`브라우저 캐시 ${num(stats.fromCache)}개`);
+  if (stats.probed > 0) parts.push(`직접 읽음 ${num(stats.probed)}개`);
+
+  const err = stats.indexError
+    ? `<p class="status-warn small" style="margin:0 0 8px">${escapeHtml(stats.indexError)}</p>`
+    : '';
+  const hint =
+    stats.fromIndexFile === stats.total && stats.total > 0
+      ? '인덱스 파일 덕분에 헤더 훑기를 건너뛰었습니다.'
+      : '내보낸 파일을 이 폴더에 두면, 다음에 열 때 헤더 훑기를 건너뜁니다. 원본 JDR은 건드리지 않습니다.';
+
+  return `
+    <p class="section-title">불러온 방식</p>
+    ${err}
+    <p class="muted small" style="margin:0 0 8px">${parts.join(' · ') || '없음'}</p>
+    <button class="btn" type="button" id="btn-export-index">인덱스 파일 내보내기 (${escapeHtml(INDEX_FILE_NAME)})</button>
+    <p class="muted small" style="margin:8px 0 0">${hint}</p>`;
 }
 
 function hhmm(ms: number): string {
@@ -67,6 +100,7 @@ export function renderCalendar(
   selectedDay: string,
   folders: FolderStat[],
   handlers: CalendarHandlers,
+  stats: LoadStats,
 ): void {
   if (index.days.length === 0) {
     el.innerHTML = '<p class="muted">기록 시각을 읽을 수 있는 파일이 없습니다.</p>';
@@ -108,6 +142,7 @@ export function renderCalendar(
       <dt>날짜</dt><dd>${num(index.days.length)}일</dd>
       <dt>파일</dt><dd>${num(index.totalSegments)}개 · ${bytes(index.totalBytes)}</dd>
     </dl>
+    ${loadSection(stats)}
   `;
 
   el.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) =>
@@ -125,4 +160,5 @@ export function renderCalendar(
   el.querySelectorAll<HTMLInputElement>('[data-folder]').forEach((c) =>
     c.addEventListener('change', () => handlers.onToggleFolder(c.dataset.folder ?? '', c.checked)),
   );
+  el.querySelector<HTMLButtonElement>('#btn-export-index')?.addEventListener('click', () => handlers.onExportIndex());
 }

@@ -4,6 +4,10 @@ import { BlobByteSource } from './core/byte-source';
 import { buildCalendar, type CalendarIndex } from './core/calendar';
 import { buildLibrary, type Library } from './core/library';
 import type { StripLayout } from './core/strip-layout';
+import {
+  buildIndexFile, entryToSegment, findIndexFile, indexMatches, INDEX_FILE_NAME,
+  parseIndexFile, serializeIndexFile, type IndexEntry,
+} from './core/index-file';
 import { cacheKeyOf, fromCacheValue, ProbeCache, toCacheValue } from './core/probe-cache';
 import { probeSegment, type SegmentInfo } from './core/segment';
 import { formatDuration, formatRecordedTime } from './core/time';
@@ -14,7 +18,7 @@ import { FileSegmentLoader } from './player/loader';
 import { SequencePlayer } from './player/sequence';
 import { hasWebCodecs } from './player/index';
 import type { PlayerStatus } from './player/player';
-import { renderCalendar } from './ui/calendar';
+import { renderCalendar, type LoadStats } from './ui/calendar';
 import { renderSummary } from './ui/summary';
 import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
@@ -46,6 +50,7 @@ interface FolderState {
   monthIndex: number;
   selectedDay: string;
   files: Map<string, File>;
+  stats: LoadStats;
 }
 
 /** 지금 열려 있는 날짜(또는 단일 파일)의 재생 세션 */
@@ -250,29 +255,50 @@ async function openFolder(all: File[]): Promise<void> {
   const rawPaths = jdrFiles.map((f) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name);
   const root = commonRootPrefix(rawPaths);
 
-  // 같은 폴더를 다시 열면 헤더를 다시 읽지 않는다
+  // ① 폴더 안에 인덱스 파일이 있으면 그걸 먼저 쓴다 (헤더 훑기를 통째로 건너뛴다)
+  let indexMap = new Map<string, IndexEntry>();
+  let indexError: string | undefined;
+  const indexFile = findIndexFile(all);
+  if (indexFile) {
+    $('loading-phase').textContent = '인덱스 파일을 읽는 중…';
+    try {
+      indexMap = parseIndexFile(await indexFile.text());
+    } catch (e) {
+      indexError = `인덱스 파일을 쓸 수 없어 직접 읽습니다 — ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
+  // ② 없으면 브라우저 캐시, ③ 그것도 없으면 헤더를 직접 읽는다
   const keys = jdrFiles.map(cacheKeyOf);
-  const cached = await probeCache.getMany(keys);
-  let fromCache = 0;
+  const cached = indexMap.size > 0 ? new Map() : await probeCache.getMany(keys);
+  const stats: LoadStats = { total: jdrFiles.length, fromIndexFile: 0, fromCache: 0, probed: 0, indexError };
 
   const segments: SegmentInfo[] = [];
   const files = new Map<string, File>();
   const toStore: ReturnType<typeof toCacheValue>[] = [];
 
+  $('loading-phase').textContent = '파일 목록을 훑는 중…';
   for (let i = 0; i < jdrFiles.length; i++) {
     const f = jdrFiles[i];
     const path = rawPaths[i].startsWith(root) ? rawPaths[i].slice(root.length) : rawPaths[i];
     const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-    const hit = cached.get(keys[i]);
+    const meta = { name: f.name, path, folder, size: f.size };
 
+    const entry = indexMap.get(path);
+    const hit = cached.get(keys[i]);
     let seg: SegmentInfo;
-    if (hit) {
-      seg = fromCacheValue(hit, { name: f.name, path, folder, size: f.size });
-      fromCache++;
+    if (entry && indexMatches(entry, f)) {
+      // 크기·수정시각이 같을 때만 믿는다. 파일이 바뀌었으면 다시 읽는다.
+      seg = entryToSegment(entry, meta);
+      stats.fromIndexFile++;
+    } else if (hit) {
+      seg = fromCacheValue(hit, meta);
+      stats.fromCache++;
     } else {
       // 헤더 512바이트만 읽는다 (파일 전체를 읽지 않는다)
       seg = await probeSegment({ src: new BlobByteSource(f, f.name), name: f.name, path, size: f.size });
       toStore.push(toCacheValue(keys[i], seg));
+      stats.probed++;
     }
     segments.push(seg);
     files.set(seg.id, f);
@@ -280,7 +306,9 @@ async function openFolder(all: File[]): Promise<void> {
     if ((i & 31) === 0) {
       setBar((i / jdrFiles.length) * 100);
       $('loading-detail').textContent =
-        `${num(i + 1)} / ${num(jdrFiles.length)}개 훑는 중${fromCache > 0 ? ` · 캐시 ${num(fromCache)}개` : ''}`;
+        `${num(i + 1)} / ${num(jdrFiles.length)}개` +
+        (stats.fromIndexFile > 0 ? ` · 인덱스 ${num(stats.fromIndexFile)}개` : '') +
+        (stats.fromCache > 0 ? ` · 캐시 ${num(stats.fromCache)}개` : '');
       await new Promise((r) => setTimeout(r, 0));
     }
   }
@@ -296,11 +324,12 @@ async function openFolder(all: File[]): Promise<void> {
   folderState = {
     allSegments: segments, folders,
     calendar: buildCalendar(selectedSegments(segments, folders)),
-    monthIndex: 0, selectedDay: '', files,
+    monthIndex: 0, selectedDay: '', files, stats,
   };
   // 가장 최근 달부터 보여준다
   folderState.monthIndex = Math.max(0, folderState.calendar.months.length - 1);
-  if (fromCache > 0) toast(`${num(fromCache)}개는 캐시에서 읽었습니다`);
+  if (stats.fromIndexFile > 0) toast(`인덱스 파일에서 ${num(stats.fromIndexFile)}개를 읽어 훑기를 건너뛰었습니다`);
+  else if (stats.fromCache > 0) toast(`${num(stats.fromCache)}개는 브라우저 캐시에서 읽었습니다`);
   drawCalendar();
   showView('calendar');
 }
@@ -351,7 +380,28 @@ function drawCalendar(): void {
       fs.selectedDay = fs.calendar.byKey.has(fs.selectedDay) ? fs.selectedDay : '';
       drawCalendar();
     },
-  });
+    onExportIndex: () => exportIndexFile(),
+  }, fs.stats);
+}
+
+/** 훑은 결과를 파일로 내보낸다. 폴더에 넣어두면 다음에 열 때 훑기를 건너뛴다. */
+function exportIndexFile(): void {
+  const fs = folderState;
+  if (!fs) return;
+  const items = fs.allSegments
+    .map((seg) => ({ seg, file: fs.files.get(seg.id) }))
+    .filter((x): x is { seg: SegmentInfo; file: File } => !!x.file);
+  const text = serializeIndexFile(buildIndexFile(items));
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = INDEX_FILE_NAME;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  toast(`${INDEX_FILE_NAME} 저장 · ${num(items.length)}개 · ${bytes(blob.size)} — 이 폴더에 넣어두세요`);
 }
 
 /** 날짜(또는 그 안의 운행 하나)만 불러온다 */

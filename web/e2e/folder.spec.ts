@@ -183,3 +183,95 @@ test('작은 화면에서도 캘린더가 무너지지 않는다', async ({ page
   expect(overflow, '가로 스크롤이 생기면 안 된다').toBeLessThanOrEqual(1);
   await expect(page.locator('.cal-grid')).toBeVisible();
 });
+
+test('인덱스 파일을 내보내 폴더에 두면 다음에 훑기를 건너뛴다', async ({ page }, testInfo) => {
+  await openFolder(page);
+  // 처음에는 직접 읽는다
+  await expect(page.locator('#calendar')).toContainText('직접 읽음');
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#btn-export-index').click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('jdr-index.json');
+
+  // 내려받은 인덱스를 폴더에 넣는다 (사용자가 손으로 복사하는 것과 같다)
+  const saved = join(testInfo.outputDir, 'jdr-index.json');
+  await download.saveAs(saved);
+  const { copyFileSync, readFileSync } = await import('node:fs');
+  copyFileSync(saved, join(dir, 'jdr-index.json'));
+
+  const text = readFileSync(saved, 'utf8');
+  expect(text).toContain('"format": "jdr-viewer-index"');
+  expect(JSON.parse(text).count).toBe(10); // data 9 + broken 1
+
+  try {
+    // 캐시가 끼어들지 않도록 새 컨텍스트에서 연다
+    const fresh = await page.context().browser()!.newContext();
+    const p2 = await fresh.newPage();
+    await p2.goto(codec?.startsWith('avc1') ? 'http://127.0.0.1:5173/' : `http://127.0.0.1:5173/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+
+    await expect(p2.locator('#calendar')).toContainText('인덱스 파일 10개');
+    await expect(p2.locator('#calendar')).not.toContainText('직접 읽음');
+    await expect(p2.locator('#calendar')).toContainText('헤더 훑기를 건너뛰었습니다');
+    // 인덱스로 읽어도 날짜·운행이 그대로 나와야 한다
+    await expect(p2.locator('.cal-cell.is-on')).toHaveCount(2);
+    await p2.locator('[data-day="2026-09-08"]').click();
+    await expect(p2.locator('.session-row')).toHaveCount(2);
+    // 그리고 실제로 재생까지 된다
+    await p2.locator('[data-session="0"]').click();
+    await expect(p2.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+    await expect(p2.locator('#file-note')).toContainText('구간 1/3');
+    await fresh.close();
+  } finally {
+    const { rmSync } = await import('node:fs');
+    rmSync(join(dir, 'jdr-index.json'), { force: true });
+  }
+});
+
+test('파일이 바뀌면 그 파일만 다시 읽는다', async ({ page }, testInfo) => {
+  await openFolder(page);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#btn-export-index').click(),
+  ]);
+  const saved = join(testInfo.outputDir, 'idx.json');
+  await download.saveAs(saved);
+
+  const { readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  // 한 파일의 수정 시각을 조작해 "바뀐 파일"을 흉내낸다
+  const idx = JSON.parse(readFileSync(saved, 'utf8'));
+  const row = idx.rows.find((r: unknown[]) => String(r[0]).endsWith('00000460.jdr'));
+  row[2] = 1;                       // mtime 불일치
+  writeFileSync(join(dir, 'jdr-index.json'), JSON.stringify(idx));
+
+  try {
+    const fresh = await page.context().browser()!.newContext();
+    const p2 = await fresh.newPage();
+    await p2.goto('http://127.0.0.1:5173/');
+    await p2.locator('#folder-input').setInputFiles(dir);
+    await expect(p2.locator('#view-calendar')).toBeVisible({ timeout: 60_000 });
+    // 9개는 인덱스에서, 1개는 직접
+    await expect(p2.locator('#calendar')).toContainText('인덱스 파일 9개');
+    await expect(p2.locator('#calendar')).toContainText('직접 읽음 1개');
+    await fresh.close();
+  } finally {
+    rmSync(join(dir, 'jdr-index.json'), { force: true });
+  }
+});
+
+test('깨진 인덱스 파일은 사유를 알리고 직접 읽는다', async ({ page }) => {
+  const { writeFileSync, rmSync } = await import('node:fs');
+  writeFileSync(join(dir, 'jdr-index.json'), '{ 이건 JSON이 아님');
+  try {
+    await openFolder(page);
+    await expect(page.locator('#calendar')).toContainText('인덱스 파일을 쓸 수 없어');
+    await expect(page.locator('#calendar')).toContainText('직접 읽음 10개');
+    // 그래도 캘린더는 정상으로 나온다
+    await expect(page.locator('.cal-cell.is-on')).toHaveCount(2);
+  } finally {
+    rmSync(join(dir, 'jdr-index.json'), { force: true });
+  }
+});
