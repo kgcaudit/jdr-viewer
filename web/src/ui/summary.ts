@@ -1,7 +1,41 @@
 /** 분석 요약 패널. 증거성 정보(해시·무결성)를 맨 위에 둔다. */
 import type { JdrDocument } from '../core/types';
+import type { Library } from '../core/library';
+import type { SegmentInfo } from '../core/segment';
 import { formatDuration, formatRecordedTime } from '../core/time';
 import { bytes, escapeHtml, num } from './format';
+
+export interface SummaryInput {
+  /** 현재 재생 중인 세그먼트의 파싱 결과 (아직 없으면 null) */
+  doc: JdrDocument | null;
+  lib: Library;
+  segment: SegmentInfo | null;
+  /** 폴더 모드인가 (세그먼트가 여러 개) */
+  merged: boolean;
+}
+
+/** 폴더 전체 요약 — 병합 타임라인이 어떤 모습인지 */
+function librarySection(lib: Library): string {
+  const coverage = lib.spanMs > 0 ? (lib.coveredMs / lib.spanMs) * 100 : 100;
+  const overlapNote =
+    lib.overlaps.length > 0
+      ? `<div class="note"><strong>구간 ${num(lib.overlaps.length)}곳이 겹칩니다.</strong>
+         같은 시각을 담은 파일이 여러 개라는 뜻입니다(예: event와 data).
+         연속 재생에서는 <strong>먼저 시작한 쪽</strong>을 씁니다.
+         구간 탭에서 폴더를 나눠 선택할 수 있습니다.</div>`
+      : '';
+  return `
+    <p class="section-title">병합 타임라인</p>
+    <dl class="kv">
+      <dt>구간</dt><dd>${num(lib.segments.length)}개${lib.invalid.length ? ` <span class="status-warn">(읽지 못한 파일 ${num(lib.invalid.length)}개)</span>` : ''}</dd>
+      <dt>전체 범위</dt><dd>${formatRecordedTime(lib.startMs)}<br>~ ${formatRecordedTime(lib.endMs)}</dd>
+      <dt>벽시계 길이</dt><dd>${formatDuration(lib.spanMs / 1000)}</dd>
+      <dt>실제 영상</dt><dd>${formatDuration(lib.coveredMs / 1000)} <span class="muted">(${coverage.toFixed(1)}%)</span></dd>
+      <dt>빈 구간</dt><dd>${lib.gaps.length === 0 ? '없음' : `${num(lib.gaps.length)}개 · 합계 ${formatDuration(lib.gaps.reduce((a, g) => a + g.durationMs, 0) / 1000)}`}</dd>
+      <dt>전체 크기</dt><dd>${bytes(lib.totalBytes)}</dd>
+    </dl>
+    ${overlapNote}`;
+}
 
 function integrityLine(doc: JdrDocument): string {
   const noIndex = doc.blocks.some((b) => !b.indexAvailable);
@@ -49,7 +83,12 @@ function parameterSetNote(doc: JdrDocument): string {
   return `<div class="note"><strong>H.264 비트스트림 점검</strong><ul style="margin:6px 0 0;padding-left:18px">${rows}</ul></div>`;
 }
 
-export function renderSummary(el: HTMLElement, doc: JdrDocument): void {
+export function renderSummary(el: HTMLElement, input: SummaryInput): void {
+  const { doc, lib, segment, merged } = input;
+  if (!doc) {
+    el.innerHTML = `${merged ? librarySection(lib) : ''}<p class="muted">구간을 여는 중…</p>`;
+    return;
+  }
   const tags = Object.entries(doc.tagCounts)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([t, c]) => `<span class="tag-pill">${escapeHtml(t)} · ${num(c)}</span>`)
@@ -64,15 +103,20 @@ export function renderSummary(el: HTMLElement, doc: JdrDocument): void {
     .join('');
 
   el.innerHTML = `
-    <p class="section-title">파일</p>
+    ${merged ? librarySection(lib) : ''}
+    <p class="section-title">${merged ? '현재 구간 파일' : '파일'}</p>
     <dl class="kv">
-      <dt>이름</dt><dd>${escapeHtml(doc.fileName)}</dd>
+      <dt>이름</dt><dd>${escapeHtml(doc.fileName)}${segment?.folder ? ` <span class="muted">(${escapeHtml(segment.folder)})</span>` : ''}</dd>
       <dt>크기</dt><dd>${bytes(doc.fileSize)} <span class="muted">(${num(doc.fileSize)} bytes)</span></dd>
-      <dt>SHA-256</dt><dd style="font-size:12px">${escapeHtml(doc.sha256)}</dd>
+      <dt>SHA-256</dt><dd style="font-size:12px">${
+        doc.sha256
+          ? escapeHtml(doc.sha256)
+          : '<span class="muted">폴더 모드에서는 생략합니다 — 파일 전체를 읽어야 해서 가장 비쌉니다. 내보내기 탭에서 계산할 수 있습니다.</span>'
+      }</dd>
       <dt>인덱스 대조</dt><dd>${integrityLine(doc)}</dd>
     </dl>
 
-    <p class="section-title">기록</p>
+    <p class="section-title">${merged ? '현재 구간 기록' : '기록'}</p>
     <dl class="kv">
       <dt>시작</dt><dd>${formatRecordedTime(doc.firstTimeMs)}</dd>
       <dt>종료</dt><dd>${formatRecordedTime(doc.lastTimeMs)}</dd>

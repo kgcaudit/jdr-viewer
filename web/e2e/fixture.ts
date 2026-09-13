@@ -10,7 +10,7 @@ const WIDTH = 320;
 const HEIGHT = 180;
 const FRAMES = 45;
 const FPS = 30;
-const T0 = Date.UTC(2026, 0, 15, 9, 30, 0, 0);
+const DEFAULT_T0 = Date.UTC(2026, 0, 15, 9, 30, 0, 0);
 
 interface EncodedFrame { data: Uint8Array<ArrayBuffer>; key: boolean }
 export interface EncodeResult { frames: EncodedFrame[]; codec: string | null; error?: string }
@@ -71,7 +71,7 @@ async function getEncoded(): Promise<EncodeResult> {
   return encodeResult;
 }
 
-async function buildSampleJdr(): Promise<Uint8Array<ArrayBuffer>> {
+async function buildSampleJdr(T0 = DEFAULT_T0): Promise<Uint8Array<ArrayBuffer>> {
   const { frames, error, codec } = await getEncoded();
   const packets: SynthPacket[] = [];
 
@@ -122,12 +122,14 @@ async function buildSampleJdr(): Promise<Uint8Array<ArrayBuffer>> {
 
 declare global {
   interface Window {
-    buildSampleJdr: () => Promise<number[]>;
+    /** startIso를 주면 그 시각에서 시작하는 파일을 만든다 (폴더 병합 테스트용) */
+    buildSampleJdr: (startIso?: string) => Promise<number[]>;
     sampleCodec: string | null;
   }
 }
 
-window.buildSampleJdr = async () => Array.from(await buildSampleJdr());
+window.buildSampleJdr = async (startIso?: string) =>
+  Array.from(await buildSampleJdr(startIso ? Date.parse(`${startIso}Z`) : DEFAULT_T0));
 void (async () => {
   window.sampleCodec = (await getEncoded()).codec;
 })();

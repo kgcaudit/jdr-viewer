@@ -26,6 +26,19 @@ const SCAN_CHUNK = 4 << 20;
 
 export class JdrParseError extends Error {}
 
+export interface ParseOptions {
+  /**
+   * SHA-256을 계산할지. 폴더 모드에서 수십 개 파일을 미리 읽을 때는 끈다
+   * (해시는 파일 전체를 읽어야 해서 가장 비싼 단계다).
+   */
+  hash?: boolean;
+  /**
+   * 이미 알고 있는 JEB 블록 오프셋. 주면 파일 전체 magic 스캔을 건너뛴다.
+   * probeSegment()가 헤더 체인을 따라가며 구해 둔 값을 그대로 쓴다.
+   */
+  blockOffsets?: number[];
+}
+
 function matchMagic(buf: Uint8Array, i: number): boolean {
   return buf[i] === MAGIC[0] && buf[i + 1] === MAGIC[1] && buf[i + 2] === MAGIC[2] && buf[i + 3] === MAGIC[3];
 }
@@ -37,6 +50,7 @@ function matchMagic(buf: Uint8Array, i: number): boolean {
 async function hashAndScan(
   src: ByteSource,
   onProgress?: (p: ParseProgress) => void,
+  withHash = true,
 ): Promise<{ sha256: string; candidates: number[] }> {
   const hash = new Sha256();
   const candidates: number[] = [];
@@ -46,7 +60,7 @@ async function hashAndScan(
   while (pos < src.size) {
     const chunk = await src.read(pos, SCAN_CHUNK);
     if (chunk.length === 0) break;
-    hash.update(chunk);
+    if (withHash) hash.update(chunk);
 
     // 청크 경계에 걸친 magic 처리
     if (tail.length > 0) {
@@ -67,10 +81,10 @@ async function hashAndScan(
     onProgress?.({ phase: 'scan', done: pos, total: src.size });
   }
 
-  return { sha256: hash.digestHex(), candidates };
+  return { sha256: withHash ? hash.digestHex() : '', candidates };
 }
 
-interface HeaderRaw {
+export interface HeaderRaw {
   offset: number;
   packetCount: number;
   indexOffset: number;
@@ -80,7 +94,7 @@ interface HeaderRaw {
 }
 
 /** magic만으로는 오탐이 나므로 헤더 필드까지 검증한다 (사양 문서 2장). */
-async function validateHeader(src: ByteSource, offset: number): Promise<HeaderRaw | null> {
+export async function validateHeader(src: ByteSource, offset: number): Promise<HeaderRaw | null> {
   if (offset + JEB_HEADER_SIZE > src.size) return null;
   const raw = await src.read(offset, JEB_HEADER_SIZE);
   if (raw.length < JEB_HEADER_SIZE) return null;
@@ -100,7 +114,7 @@ async function validateHeader(src: ByteSource, offset: number): Promise<HeaderRa
   return { offset, packetCount, indexOffset, indexAvailable, raw };
 }
 
-function readSystemTimeFromView(dv: DataView, off: number): number {
+export function readSystemTimeFromView(dv: DataView, off: number): number {
   return systemTimeToMs(
     dv.getUint16(off, true),      // year
     dv.getUint16(off + 2, true),  // month
@@ -134,8 +148,20 @@ export function nmeaToDegrees(value: number): number {
 export async function parseJdr(
   src: ByteSource,
   onProgress?: (p: ParseProgress) => void,
+  options: ParseOptions = {},
 ): Promise<JdrDocument> {
-  const { sha256, candidates } = await hashAndScan(src, onProgress);
+  const needScan = !options.blockOffsets;
+  const needHash = options.hash ?? true;
+
+  let sha256 = '';
+  let candidates: number[];
+  if (needScan || needHash) {
+    const r = await hashAndScan(src, onProgress, needHash);
+    sha256 = r.sha256;
+    candidates = needScan ? r.candidates : options.blockOffsets!;
+  } else {
+    candidates = options.blockOffsets!;
+  }
 
   const headers: HeaderRaw[] = [];
   for (const c of candidates) {

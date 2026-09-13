@@ -17,21 +17,28 @@
       </div>
       <div class="topbar-actions">
         <span class="privacy" title="파일은 브라우저 안에서만 처리됩니다">🔒 업로드 없음</span>
-        <button id="btn-open" class="btn btn-primary" type="button">JDR 파일 열기</button>
+        <button id="btn-open-folder" class="btn" type="button">폴더 열기</button>
+        <button id="btn-open" class="btn btn-primary" type="button">파일 열기</button>
       </div>
     </header>
 
     <input id="file-input" type="file" accept=".jdr,application/octet-stream" hidden />
+    <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
 
     <!-- 파일 선택 전 -->
     <main id="view-empty" class="view">
       <div id="dropzone" class="dropzone">
         <div class="dropzone-inner">
-          <p class="dropzone-title">JDR 파일을 여기에 끌어다 놓으세요</p>
-          <p class="dropzone-sub">또는 <button id="btn-open-2" class="linklike" type="button">파일 선택</button></p>
+          <p class="dropzone-title">JDR 파일 또는 폴더를 여기에 끌어다 놓으세요</p>
+          <p class="dropzone-sub">
+            <button id="btn-open-2" class="linklike" type="button">파일 선택</button>
+            <span class="muted"> · </span>
+            <button id="btn-open-folder-2" class="linklike" type="button">폴더 선택</button>
+          </p>
           <ul class="dropzone-notes">
             <li>파일은 <strong>서버로 전송되지 않습니다.</strong> 전부 브라우저 안에서 처리됩니다.</li>
-            <li>수 GB 파일도 통째로 읽지 않고 필요한 구간만 읽습니다.</li>
+            <li><strong>폴더를 열면</strong> 파일들을 기록 시각 순으로 이어 붙여 하나의 타임라인으로 재생합니다.</li>
+            <li>파일을 통째로 읽지 않습니다. 수백 개 파일도 헤더만 훑어 1초 안에 목록이 뜹니다.</li>
             <li id="codec-note" class="muted"></li>
           </ul>
         </div>
@@ -88,21 +95,32 @@
           </select>
           <button id="btn-mute" class="btn btn-icon" type="button" aria-label="음소거">🔊</button>
         </div>
+        <div id="timeline-strip" class="strip" hidden>
+          <div id="strip-track" class="strip-track"></div>
+          <div class="strip-labels">
+            <span id="strip-start"></span>
+            <span id="strip-end"></span>
+          </div>
+        </div>
         <p id="recorded-time" class="recorded-time"></p>
+        <p id="source-note" class="muted small source-note"></p>
       </section>
 
       <section class="panel">
         <nav class="tabs" role="tablist">
           <button class="tab is-active" data-tab="summary" role="tab" type="button">요약</button>
+          <button class="tab" data-tab="segments" role="tab" type="button" hidden>구간</button>
           <button class="tab" data-tab="map" role="tab" type="button">지도</button>
           <button class="tab" data-tab="sensor" role="tab" type="button">센서</button>
           <button class="tab" data-tab="export" role="tab" type="button">내보내기</button>
         </nav>
         <div class="tab-panels">
           <div id="tab-summary" class="tab-panel is-active"></div>
+          <div id="tab-segments" class="tab-panel"></div>
           <div id="tab-map" class="tab-panel">
             <div id="map" class="map"></div>
             <p id="map-note" class="muted small"></p>
+            <p id="scan-note" class="muted small"></p>
           </div>
           <div id="tab-sensor" class="tab-panel">
             <div id="chart-speed" class="chart"></div>

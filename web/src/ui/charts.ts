@@ -1,9 +1,17 @@
 /** 속도 / G센서 시계열 차트. uPlot은 수만 포인트도 가볍게 그린다. */
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import type { JdrDocument } from '../core/types';
+import type { GpsFix, GsensorSeries } from '../core/types';
 import { GSENSOR_SCALE } from '../core/parser';
 import { GpsMap } from './map';
+
+/** 단일 파일이든 폴더 병합이든 같은 모양으로 받는다 */
+export interface ChartData {
+  /** 시간축 원점 (절대 ms) */
+  t0: number;
+  gps: GpsFix[];
+  gsensor: GsensorSeries;
+}
 
 const COLORS = { speed: '#2b6cb0', x: '#c2410c', y: '#15803d', z: '#6d28d9', cursor: '#e53e3e' };
 
@@ -44,12 +52,12 @@ export class TimeCharts {
     private readonly gEl: HTMLElement,
   ) {}
 
-  render(doc: JdrDocument): void {
+  render(data: ChartData): void {
     this.destroy();
-    const t0 = doc.firstTimeMs;
+    const t0 = data.t0;
 
     // ── 속도 ──
-    const fixes = GpsMap.validFixes(doc.gps);
+    const fixes = GpsMap.validFixes(data.gps);
     if (fixes.length > 1) {
       const xs = fixes.map((g) => (g.timeMs - t0) / 1000);
       const ys = fixes.map((g) => g.speed);
@@ -74,7 +82,7 @@ export class TimeCharts {
     }
 
     // ── G센서 ──
-    const s = doc.gsensor;
+    const s = data.gsensor;
     if (s.count > 1) {
       const xsAll = new Float64Array(s.count);
       for (let i = 0; i < s.count; i++) xsAll[i] = (s.timeMs[i] - t0) / 1000;

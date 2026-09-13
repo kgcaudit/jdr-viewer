@@ -4,7 +4,19 @@ import type { JdrDocument } from '../core/types';
 import {
   buildGpsCsv, buildGsensorCsv, buildPacketsCsv, buildSummaryJson, extractH264, extractWav,
 } from '../core/export';
+import { Sha256 } from '../core/sha256';
 import { bytes, num } from './format';
+
+/** 파일 전체를 청크로 읽어 해시를 낸다. 폴더 모드에서는 필요할 때만 계산한다. */
+async function computeSha256(src: ByteSource, onProgress: (done: number, total: number) => void): Promise<string> {
+  const hash = new Sha256();
+  const CHUNK = 8 << 20;
+  for (let pos = 0; pos < src.size; pos += CHUNK) {
+    hash.update(await src.read(pos, CHUNK));
+    onProgress(pos, src.size);
+  }
+  return hash.digestHex();
+}
 
 interface ExportItem {
   id: string;
@@ -35,6 +47,8 @@ export function renderExports(
   doc: JdrDocument,
   src: ByteSource,
   toast: (msg: string) => void,
+  /** 폴더 모드일 때 현재 구간 파일명 — 내보내기 대상이 무엇인지 밝히기 위함 */
+  segmentLabel?: string,
 ): void {
   const stem = doc.fileName.replace(/\.[^.]+$/, '') || 'jdr';
   const items: ExportItem[] = [
@@ -84,6 +98,8 @@ export function renderExports(
   }
 
   el.innerHTML = `
+    ${segmentLabel ? `<div class="note">내보내기는 <strong>현재 재생 중인 구간(${segmentLabel})</strong>에 대해서만 수행됩니다. 여러 구간에 걸친 병합 내보내기는 아직 없습니다.</div>` : ''}
+    ${!doc.sha256 ? `<div class="export-item"><div><strong>이 구간 SHA-256</strong><span>폴더 모드에서는 자동 계산하지 않습니다 (파일 전체를 읽어야 함)</span></div><button class="btn" type="button" id="btn-hash">계산</button></div>` : ''}
     <div class="export-list">
       ${items
         .map(
@@ -104,6 +120,25 @@ export function renderExports(
     summary: '_summary.json', gps: '_gps.csv', gsensor: '_gsensor.csv',
     packets: '_packets.csv', wav: '_audio.wav', 'h264-0': '_ch0.h264', 'h264-1': '_ch1.h264',
   };
+
+  const hashBtn = el.querySelector<HTMLButtonElement>('#btn-hash');
+  hashBtn?.addEventListener('click', async () => {
+    hashBtn.disabled = true;
+    try {
+      const hex = await computeSha256(src, (done, total) => {
+        hashBtn.textContent = `${Math.round((done / total) * 100)}%`;
+      });
+      doc.sha256 = hex;
+      hashBtn.replaceWith(Object.assign(document.createElement('code'), {
+        textContent: hex, style: 'font-size:11px;word-break:break-all;max-width:260px',
+      }));
+      toast('SHA-256 계산 완료');
+    } catch (e) {
+      hashBtn.disabled = false;
+      hashBtn.textContent = '계산';
+      toast(`해시 계산 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
 
   el.querySelectorAll<HTMLButtonElement>('[data-export]').forEach((btn) => {
     btn.addEventListener('click', async () => {

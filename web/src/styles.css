@@ -181,3 +181,56 @@ body {
 /* uPlot 다크 대응 */
 .uplot, .u-legend { color: var(--text); font-family: inherit !important; }
 .u-legend { font-size: 12px; }
+
+/* ── 타임라인 스트립 (벽시계 축) ───────── */
+.strip { margin-top: 10px; }
+.strip-track {
+  position: relative; height: 26px; border-radius: 6px; cursor: pointer;
+  background: repeating-linear-gradient(90deg, var(--surface-2) 0 8px, transparent 8px 16px);
+  border: 1px solid var(--border); overflow: hidden;
+}
+.strip-seg {
+  position: absolute; top: 3px; bottom: 3px; background: var(--accent); opacity: .55; border-radius: 3px;
+}
+.strip-seg.is-active { opacity: 1; box-shadow: 0 0 0 1px var(--surface); }
+/* 빈 구간은 숨기지 않는다 — 녹화 공백도 사실이다 */
+.strip-gap {
+  position: absolute; top: 0; bottom: 0;
+  background: repeating-linear-gradient(45deg, transparent 0 4px, rgba(128,128,128,.22) 4px 8px);
+}
+.strip-cursor {
+  position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--danger);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.5); pointer-events: none;
+}
+.strip-labels {
+  display: flex; justify-content: space-between; font-size: 11px; color: var(--muted);
+  margin-top: 4px; font-variant-numeric: tabular-nums;
+}
+.source-note { margin: 2px 2px 0; font-variant-numeric: tabular-nums; word-break: break-all; }
+
+/* ── 구간 목록 ─────────────────────────── */
+.seg-list { display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; margin-bottom: 4px; }
+.seg-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 8px 10px; border: 1px solid transparent; border-radius: 8px;
+  background: none; color: inherit; font: inherit; cursor: pointer; min-height: 44px;
+}
+.seg-row:hover { background: var(--surface-2); }
+.seg-row.is-active { background: var(--surface-2); border-color: var(--accent); }
+.seg-time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.seg-main { min-width: 0; display: flex; flex-direction: column; }
+.seg-name { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg-meta { font-size: 11px; color: var(--muted); }
+
+.folder-list { display: grid; gap: 6px; margin-bottom: 6px; }
+.folder-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.folder-item input { width: 18px; height: 18px; accent-color: var(--accent); }
+.folder-item span span { display: block; font-size: 11px; }
+
+.invalid-list { display: grid; gap: 4px; max-height: 200px; overflow-y: auto; }
+.invalid-item { padding: 6px 10px; border-left: 3px solid var(--warn); background: var(--surface-2); border-radius: 0 6px 6px 0; }
+.invalid-item strong { display: block; font-size: 12px; }
+.invalid-item span { font-size: 11px; color: var(--muted); }

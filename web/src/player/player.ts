@@ -25,6 +25,8 @@ export class JdrPlayer {
 
   onTimeUpdate: ((ms: number) => void) | null = null;
   onPlayingChange: ((playing: boolean) => void) | null = null;
+  /** 끝까지 재생됐을 때. 사용자가 누른 일시정지와 구분하기 위해 따로 둔다. */
+  onEnded: (() => void) | null = null;
 
   readonly durationMs: number;
 
@@ -170,6 +172,7 @@ export class JdrPlayer {
       this.positionMs = this.durationMs;
       this.onTimeUpdate?.(this.positionMs);
       this.pause();
+      this.onEnded?.();
       return;
     }
 

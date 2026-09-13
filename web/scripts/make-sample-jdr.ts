@@ -1,7 +1,7 @@
 /**
  * 테스트용 합성 JDR 생성기 (Node).
  *
- *   npx tsx scripts/make-sample-jdr.ts out.jdr --mb 150
+ *   npx tsx scripts/make-sample-jdr.ts out.jdr --mb 150 --start 2026-01-15T09:00:00
  *
  * 영상 페이로드는 디코딩 가능한 H.264가 아니라 채움 데이터다.
  * 파싱 성능·대용량 처리·요약/내보내기 경로를 확인하는 용도.
@@ -11,12 +11,20 @@ import { buildJdrBlock, gpsPayload, gsensorPayload, pcmTone, type SynthPacket } 
 
 const args = process.argv.slice(2);
 const out = args.find((a) => !a.startsWith('--')) ?? 'sample.jdr';
-const mbIndex = args.indexOf('--mb');
-const targetMb = mbIndex >= 0 ? Number(args[mbIndex + 1]) : 20;
+const opt = (name: string, fallback?: string): string | undefined => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 ? args[i + 1] : fallback;
+};
+const targetMb = Number(opt('mb', '20'));
 const targetBytes = targetMb * 1024 * 1024;
 
 const FPS = 30;
-const T0 = Date.UTC(2026, 0, 15, 9, 30, 0, 0);
+/** --start 2026-01-15T09:00:00 (타임존 없는 벽시계 시각으로 해석) */
+const startArg = opt('start');
+const T0 = startArg
+  ? Date.parse(startArg.endsWith('Z') ? startArg : `${startArg}Z`)
+  : Date.UTC(2026, 0, 15, 9, 30, 0, 0);
+if (!Number.isFinite(T0)) throw new Error(`--start 형식이 올바르지 않습니다: ${startArg}`);
 /** 1280x720 30fps 블랙박스의 대략적인 프레임 크기 */
 const KEY_BYTES = 90_000;
 const DELTA_BYTES = 12_000;
