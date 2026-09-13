@@ -167,7 +167,7 @@ export async function extractH264(
   return out.finish(undefined, 'video/h264');
 }
 
-function wavHeader(dataBytes: number, sampleRate: number, channels = 1, bits = 16): Bytes {
+export function wavHeader(dataBytes: number, sampleRate: number, channels = 1, bits = 16): Bytes {
   const buf = new ArrayBuffer(44);
   const dv = new DataView(buf);
   const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };

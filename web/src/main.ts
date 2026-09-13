@@ -33,6 +33,8 @@ import {
 } from './ui/segments';
 import { attachStripScrub } from './ui/strip-scrub';
 import { renderBookmarkPanel } from './ui/bookmarks';
+import { renderSpeechPanel, type SpeechPanelState } from './ui/speech';
+import { analyzeSegment, buildSpeechCsv, buildSpeechWav, type SpeechResult } from './core/speech';
 import { bytes, num } from './ui/format';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -575,6 +577,8 @@ function onSegmentChange(index: number, status: PlayerStatus | null): void {
       : st?.reason ?? '영상 없음';
   }
   if (!s.merged && doc) drawRecords(doc.firstTimeMs, doc.gps, doc.gsensor);
+  drawSpeechPanel();
+  drawTalkBands();
   updateLabels(s.player.position, index);
 }
 
@@ -746,6 +750,113 @@ seekEl.addEventListener('pointerup', commitSeek);
 $('btn-fit-map').addEventListener('click', () => {
   if (!map?.fitAll()) toast('표시할 경로가 없습니다');
 });
+
+// ── 대화(말한 구간) ──────────────────────────────────
+
+/**
+ * 구간마다 결과를 들고 있는다. 구간을 왔다 갔다 해도 다시 훑지 않게.
+ * 파일 하나가 70MB라 다시 읽는 값이 싸지 않다.
+ */
+const speechByPath = new Map<string, SpeechResult>();
+let speechBusy = false;
+let speechProgress = 0;
+
+function speechState(): SpeechPanelState {
+  const s = session;
+  const seg = s ? s.lib.segments[s.player.segmentIndex] : null;
+  const doc = s?.player.currentDoc ?? null;
+  return {
+    busy: speechBusy,
+    progress: speechProgress,
+    result: seg ? speechByPath.get(seg.path) ?? null : null,
+    targetName: seg?.name ?? '현재 구간',
+    noAudio: !!doc && doc.audio.packetCount === 0,
+  };
+}
+
+function drawSpeechPanel(): void {
+  renderSpeechPanel($('tab-speech'), speechState(), {
+    onAnalyze: () => void runSpeechAnalysis(),
+    onGoto: (relMs) => void session?.player.seekInFile(relMs),
+    onSaveWav: () => saveSpeech('wav'),
+    onSaveCsv: () => saveSpeech('csv'),
+  });
+}
+
+async function runSpeechAnalysis(): Promise<void> {
+  const s = session;
+  const doc = s?.player.currentDoc;
+  const src = s?.player.currentSource;
+  const seg = s?.lib.segments[s.player.segmentIndex];
+  if (!s || !doc || !src || !seg || speechBusy) return;
+
+  speechBusy = true;
+  speechProgress = 0;
+  drawSpeechPanel();
+  try {
+    const result = await analyzeSegment(src, doc, { path: seg.path, name: seg.name }, undefined,
+      (done, total) => {
+        speechProgress = total > 0 ? (done / total) * 100 : 0;
+        drawSpeechPanel();
+      });
+    speechByPath.set(seg.path, result);
+    toast(result.spans.length > 0
+      ? `말소리 ${num(result.spans.length)}곳을 찾았습니다`
+      : '말소리를 찾지 못했습니다');
+  } catch (e) {
+    toast(`음성을 훑지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    speechBusy = false;
+    drawSpeechPanel();
+    drawTalkBands();
+  }
+}
+
+function saveSpeech(kind: 'wav' | 'csv'): void {
+  const s = session;
+  const seg = s?.lib.segments[s.player.segmentIndex];
+  const result = seg ? speechByPath.get(seg.path) : null;
+  if (!result || result.spans.length === 0) return;
+
+  const base = result.name.replace(/\.jdr$/i, '');
+  const blob = kind === 'wav'
+    ? buildSpeechWav([result])
+    : new Blob([buildSpeechCsv([result])], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${base}_speech.${kind}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  toast(`${a.download} 저장 · ${bytes(blob.size)}`);
+}
+
+/** 찾아 둔 말한 구간을 타임라인 위에 띠로 얹는다 */
+function drawTalkBands(): void {
+  const s = session;
+  const track = $('strip-track');
+  track.querySelectorAll('.strip-talk').forEach((el) => el.remove());
+  if (!s?.merged || !stripLayout) return;
+
+  const cursor = track.querySelector('#strip-cursor');
+  for (let i = 0; i < s.lib.segments.length; i++) {
+    const seg = s.lib.segments[i];
+    const r = speechByPath.get(seg.path);
+    if (!r) continue;
+    for (const span of r.spans) {
+      const from = stripLayout.ratioAt(seg.startMs + span.startMs);
+      const to = stripLayout.ratioAt(seg.startMs + span.endMs);
+      const el = document.createElement('span');
+      el.className = 'strip-talk';
+      el.style.left = `${from * 100}%`;
+      // 짧은 말도 보이도록 최소 폭을 준다
+      el.style.width = `max(3px, ${(to - from) * 100}%)`;
+      track.insertBefore(el, cursor);
+    }
+  }
+}
 
 // ── 즐겨찾기 ────────────────────────────────────────
 
@@ -990,6 +1101,7 @@ document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
     $(`tab-${tab.dataset.tab}`).classList.add('is-active');
     if (tab.dataset.tab === 'map') map?.invalidate();
     if (tab.dataset.tab === 'sensor') charts?.resize();
+    if (tab.dataset.tab === 'speech') drawSpeechPanel();
   });
 });
 

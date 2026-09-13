@@ -275,3 +275,23 @@ test('배속에서도 영상 시간이 오디오를 따라간다', async ({ page
   expect(at1x).toBeGreaterThan(100);
   expect(at2x / at1x).toBeGreaterThan(1.4);
 });
+
+test('대화 탭에서 구간을 훑어 말한 곳을 찾는다', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await loadSample(page);
+
+  await page.locator('.tab[data-tab="speech"]').click();
+  const panel = page.locator('#tab-speech');
+  await expect(panel).toContainText('사람 말소리가 있는 곳');
+  // 증거가 아니라 색인이라는 점을 반드시 밝힌다
+  await expect(panel).toContainText('증거가 아니라 색인');
+
+  await panel.locator('#sp-run').click();
+  // 픽스처 음성은 440Hz 단일 톤이다 — 사람 말이 아니므로 찾으면 안 된다
+  await expect(panel).toContainText('말소리를 찾지 못했습니다', { timeout: 30_000 });
+  await expect(panel).toContainText('0곳');
+  await expect(panel.locator('#sp-wav')).toBeDisabled();
+  await expect(panel.locator('#sp-csv')).toBeDisabled();
+  expect(errors).toEqual([]);
+});

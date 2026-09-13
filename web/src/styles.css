@@ -456,3 +456,30 @@ body {
 .bm-meta { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bm-act { flex: 0 0 auto; }
 .bm-foot { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ── 대화(말한 구간) ────────────────────── */
+.sp-note { margin: 12px 2px 0; padding: 8px 10px; border-left: 3px solid var(--warn); background: var(--surface-2); border-radius: 0 6px 6px 0; }
+.sp-list { display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; margin-bottom: 10px; }
+.sp-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 8px 10px; min-height: 46px; border: 1px solid transparent; border-radius: 8px;
+  background: none; color: inherit; font: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sp-row:active { background: var(--surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .sp-row:hover { background: var(--surface-2); border-color: var(--accent); }
+}
+.sp-no { flex: 0 0 auto; min-width: 22px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sp-time { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sp-meta { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sp-score { flex: 0 0 46px; height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.sp-score span { display: block; height: 100%; background: var(--accent); }
+.sp-foot { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 타임라인에 겹쳐 그리는 말한 구간 띠 */
+.strip-talk {
+  position: absolute; top: 0; height: 4px; border-radius: 2px;
+  background: #d69e2e; opacity: .9; pointer-events: none;
+}

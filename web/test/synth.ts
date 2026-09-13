@@ -139,3 +139,35 @@ export function pcmTone(samples: number, startSample: number, freq = 440): Bytes
   }
   return buf;
 }
+
+/**
+ * 차 안 소리를 흉내낸 PCM.
+ *
+ * 노면·엔진(저역이 강한 잡음)에 목소리(하모닉 + 초당 4음절 포락선)를 얹는다.
+ * `voiceFrom`~`voiceTo` 초 구간에만 목소리가 들어간다.
+ */
+export function pcmCabin(
+  samples: number, startSample: number,
+  opts: { noise?: number; voice?: number; voiceFrom?: number; voiceTo?: number } = {},
+): Bytes {
+  const { noise = 0.08, voice = 0.5, voiceFrom = -1, voiceTo = -1 } = opts;
+  const buf = new Uint8Array(samples * 2);
+  const dv = new DataView(buf.buffer);
+  let lp = 0;
+  let seed = (startSample * 2654435761) >>> 0 || 1;
+  for (let i = 0; i < samples; i++) {
+    const t = (startSample + i) / 8000;
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const white = seed / 0x3fffffff - 1;
+    lp = lp * 0.92 + white * 0.08;
+    let v = (lp * 3 + white * 0.25) * noise;
+
+    if (t >= voiceFrom && t < voiceTo) {
+      let h = 0;
+      for (let k = 1; k <= 8 && 150 * k <= 3600; k++) h += Math.sin(2 * Math.PI * 150 * k * t) / k;
+      v += h * Math.max(0, Math.sin(2 * Math.PI * 4 * t)) * voice;
+    }
+    dv.setInt16(i * 2, Math.round(Math.max(-1, Math.min(1, v)) * 24000), true);
+  }
+  return buf;
+}
