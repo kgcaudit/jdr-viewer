@@ -288,7 +288,12 @@ export class SequencePlayer {
       // 프로브는 헤더만 읽으므로 종료 시각이 실제보다 이를 수 있는데,
       // 그대로 두면 없는 빈 구간이 남고 탐색이 다음 파일로 튕겨 나간다.
       if (this.applyRealTimes(seg, loaded.doc)) {
+        // 시각이 바뀌면 목록이 다시 정렬되므로 우리 자리도 다시 찾아야 한다.
+        // 안 그러면 이 뒤로 통지하는 구간 번호가 엉뚱한 파일을 가리킨다.
         recomputeLibrary(this.lib);
+        const moved = this.lib.segments.indexOf(seg);
+        if (moved >= 0) index = moved;
+        this.index = index;
         this.onLibraryFixed?.();
       }
       player.onTimeUpdate = (relMs) => {

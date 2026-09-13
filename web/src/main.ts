@@ -546,7 +546,15 @@ async function mount(): Promise<void> {
   };
   s.player.onSegmentChange = (index, status) => onSegmentChange(index, status);
   // 프로브 시각이 실제와 달라 타임라인이 고쳐지면 화면도 다시 그린다
+  // 구간을 여는 도중에 불린다. 여기서 목록 전체를 다시 그리면 본선이 수백 ms
+  // 멎어 **막 시작한 소리가 끊긴다.** 한 박자 미뤄 몰아서 한 번만 그린다.
+  let fixPending = 0;
   s.player.onLibraryFixed = () => {
+    if (!s.merged) return;
+    clearTimeout(fixPending);
+    fixPending = window.setTimeout(redrawFixedLibrary, 200);
+  };
+  const redrawFixedLibrary = (): void => {
     if (!s.merged) return;
     stripLayout = renderStrip($('strip-track'), s.lib);
     $('strip-start').textContent = formatRecordedTime(s.lib.startMs, false).slice(11);

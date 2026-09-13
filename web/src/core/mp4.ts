@@ -22,6 +22,7 @@ import {
 import type { ByteSource } from './byte-source';
 import { findNalUnits, NAL_PPS, NAL_SPS, parseSps } from './nal';
 import { AUDIO_SAMPLE_RATE, PACKET_HEADER_SIZE } from './parser';
+import { placeSample } from './audio-place';
 import type { SegmentInfo } from './segment';
 import { TagKind, tagChannel, tagIsKeyframe, tagKind } from './tags';
 import type { JdrDocument } from './types';
@@ -108,71 +109,72 @@ export function annexBToAvcc(payload: Uint8Array): Uint8Array {
 }
 
 /**
- * 구간 안의 소리를 **절대 시각 자리에 맞춰** 이어 붙여 내보낸다.
+ * 구간 안의 소리를 표본 자리에 맞춰 담는다.
  *
- * 오디오 패킷은 주차 등으로 중간이 비므로 그냥 이어 붙이면 영상과 어긋난다.
- * 비는 자리는 무음으로 채운다 (재생 쪽 audio.ts와 같은 원칙).
+ * 패킷을 그냥 이어 붙여도, 시각 그대로 놓아도 안 된다. 앞의 것은 진짜 공백
+ * (주차 등)을 없애 영상과 어긋나고, 뒤의 것은 기기 시계의 흔들림만큼
+ * 표본 몇 개짜리 구멍·겹침을 만들어 초당 여러 번 "지직" 하게 만든다.
+ *
+ * 그래서 재생 쪽(player/audio.ts)과 **같은 규칙**을 쓴다 — 이어질 만하면
+ * 앞 소리 끝에 붙이고, 흔들림이라고 보기 힘들 만큼 벌어졌을 때만 시각을
+ * 믿는다 (core/audio-place.ts).
  */
-class AudioTimeline {
-  private buf = new Float32Array(new ArrayBuffer(AUDIO_CHUNK_SAMPLES * 4));
-  private used = 0;
-  /** 지금까지 내보낸 표본 수 (구간 시작 기준) */
-  private written = 0;
-  private closed = false;
+export class AudioTimeline {
+  private buf: Float32Array<ArrayBuffer>;
+  /** buf[0]이 구간 시작에서 몇 번째 표본인지 */
+  private windowStart = 0;
+  /** 지금까지 실제로 무언가 쓰인 마지막 표본 (+1) */
+  private lastWritten = 0;
 
   constructor(
     private readonly emit: (chunk: Float32Array<ArrayBuffer>) => Promise<void>,
-  ) {}
-
-  /** relSample 위치에 pcm을 쓴다. 순서대로 들어온다고 본다. */
-  async write(relSample: number, pcm: Float32Array<ArrayBuffer>): Promise<void> {
-    if (this.closed) return;
-    const cursor = this.written + this.used;
-    if (relSample < cursor) {
-      // 겹치면 이미 쓴 만큼은 버린다 (파일 경계에서 살짝 겹칠 수 있다)
-      const skip = cursor - relSample;
-      if (skip >= pcm.length) return;
-      pcm = pcm.subarray(skip);
-      relSample = cursor;
-    }
-    await this.pad(relSample - cursor);
-    await this.push(pcm);
+    private readonly chunk = AUDIO_CHUNK_SAMPLES,
+  ) {
+    this.buf = new Float32Array(new ArrayBuffer(this.chunk * 4));
   }
 
-  private async pad(samples: number): Promise<void> {
-    let left = samples;
-    while (left > 0) {
-      const take = Math.min(left, this.buf.length - this.used);
-      this.buf.fill(0, this.used, this.used + take);
-      this.used += take;
-      left -= take;
-      if (this.used === this.buf.length) await this.flush();
+  /**
+   * 구간 시작에서 `at`번째 표본 자리에 pcm을 놓는다.
+   * `at`은 패킷 시각에서 구한 **명목** 자리이고, 실제 자리는 여기서 정한다.
+   */
+  async write(at: number, pcm: Float32Array<ArrayBuffer>): Promise<void> {
+    at = placeSample(this.lastWritten > 0 ? this.lastWritten : -1, at);
+    let i = 0;
+    // 이미 내보낸 자리는 되돌릴 수 없으므로 건너뛴다
+    if (at < this.windowStart) {
+      i = this.windowStart - at;
+      if (i >= pcm.length) return;
     }
-  }
-
-  private async push(pcm: Float32Array<ArrayBuffer>): Promise<void> {
-    let at = 0;
-    while (at < pcm.length) {
-      const take = Math.min(pcm.length - at, this.buf.length - this.used);
-      this.buf.set(pcm.subarray(at, at + take), this.used);
-      this.used += take;
-      at += take;
-      if (this.used === this.buf.length) await this.flush();
+    while (i < pcm.length) {
+      const abs = at + i;
+      while (abs >= this.windowStart + this.chunk) await this.flush();
+      const off = abs - this.windowStart;
+      const take = Math.min(pcm.length - i, this.chunk - off);
+      this.buf.set(pcm.subarray(i, i + take), off);
+      this.lastWritten = Math.max(this.lastWritten, abs + take);
+      i += take;
     }
   }
 
+  /** 창 하나를 통째로 내보낸다. 길이가 일정해야 절대 위치가 유지된다. */
   private async flush(): Promise<void> {
-    if (this.used === 0) return;
-    const chunk = new Float32Array(new ArrayBuffer(this.used * 4));
-    chunk.set(this.buf.subarray(0, this.used));
-    await this.emit(chunk);
-    this.written += this.used;
-    this.used = 0;
+    const out = new Float32Array(new ArrayBuffer(this.chunk * 4));
+    out.set(this.buf);
+    await this.emit(out);
+    this.buf.fill(0);
+    this.windowStart += this.chunk;
   }
 
+  /** 마지막 창은 실제로 쓰인 데까지만 잘라 내보낸다 (뒤에 무음을 달지 않는다) */
   async close(): Promise<void> {
-    await this.flush();
-    this.closed = true;
+    while (this.windowStart < this.lastWritten) {
+      const left = this.lastWritten - this.windowStart;
+      if (left >= this.chunk) { await this.flush(); continue; }
+      const out = new Float32Array(new ArrayBuffer(left * 4));
+      out.set(this.buf.subarray(0, left));
+      await this.emit(out);
+      this.windowStart += left;
+    }
   }
 }
 

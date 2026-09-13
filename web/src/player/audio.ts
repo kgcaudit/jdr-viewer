@@ -14,6 +14,7 @@ import type { JdrDocument } from '../core/types';
 import { PACKET_HEADER_SIZE, AUDIO_SAMPLE_RATE } from '../core/parser';
 import { TagKind, tagKind } from '../core/tags';
 import { TimeStretcher } from '../core/timestretch';
+import { placeSample } from '../core/audio-place';
 
 /** 한 번에 만들어 예약하는 오디오 구간 길이 */
 const SEGMENT_MS = 500;
@@ -23,8 +24,31 @@ const SCHEDULE_AHEAD_MS = 1500;
 interface AudioPacketRef {
   startMs: number;
   endMs: number;
+  /** 실제로 파형을 놓을 자리(표본). 시각을 그대로 믿지 않는다 — audio-place.ts */
+  startSample: number;
+  endSample: number;
   offset: number;
   size: number;
+}
+
+/**
+ * 패킷마다 실제로 놓을 표본 자리를 한 번에 정해 둔다.
+ *
+ * 창(500ms)을 만들 때마다 따로 계산하면 창 경계에서 규칙이 갈릴 수 있으므로,
+ * 파일을 열 때 한 번만 정하고 그 뒤로는 그대로 쓴다.
+ */
+function placeRefs(refs: AudioPacketRef[]): void {
+  let cursor = -1;
+  for (const ref of refs) {
+    const count = Math.max(0, Math.floor(ref.size / 2));
+    const nominal = Math.round((ref.startMs / 1000) * AUDIO_SAMPLE_RATE);
+    ref.startSample = placeSample(cursor, nominal);
+    ref.endSample = ref.startSample + count;
+    cursor = Math.max(cursor, ref.endSample);
+  }
+  // 드물게 시각이 크게 뒤집히면 자리가 앞뒤로 엇갈릴 수 있다. 창을 훑을 때
+  // 앞에서 끊고 나오므로(break) 자리 순서로 다시 세워 둔다.
+  refs.sort((a, b) => a.startSample - b.startSample);
 }
 
 export class AudioPlayer {
@@ -45,6 +69,8 @@ export class AudioPlayer {
   private readonly stretcher = new TimeStretcher();
   /** 신축기가 내놓았지만 아직 예약하지 않은 표본 */
   private pending = new Float32Array(0);
+  /** 놓인 자리 기준 마지막 소리의 끝(ms). 예약을 어디서 멈출지 정한다. */
+  private readonly lastAudioMs: number;
   readonly hasAudio: boolean;
 
   constructor(doc: JdrDocument, private readonly src: ByteSource) {
@@ -56,12 +82,18 @@ export class AudioPlayer {
       this.refs.push({
         startMs,
         endMs: startMs + (p.size[i] / 2 / AUDIO_SAMPLE_RATE) * 1000,
+        startSample: 0,
+        endSample: 0,
         offset: p.offset[i] + PACKET_HEADER_SIZE,
         size: p.size[i],
       });
     }
     this.refs.sort((a, b) => a.startMs - b.startMs);
+    placeRefs(this.refs);
     this.hasAudio = this.refs.length > 0;
+    let lastSample = 0;
+    for (const ref of this.refs) lastSample = Math.max(lastSample, ref.endSample);
+    this.lastAudioMs = (lastSample / AUDIO_SAMPLE_RATE) * 1000;
   }
 
   /** 브라우저 정책상 사용자 제스처 안에서 호출되어야 한다. */
@@ -126,17 +158,23 @@ export class AudioPlayer {
     if (this.scheduledMs - cur < SCHEDULE_AHEAD_MS * this.speed) await this.schedule();
   }
 
-  /** 미디어 시각 [from, from+SEGMENT_MS) 구간의 파형을 만든다. 빈 곳은 무음. */
+  /**
+   * 미디어 시각 [from, from+SEGMENT_MS) 구간의 파형을 만든다. 빈 곳은 무음.
+   *
+   * 자리는 시각이 아니라 미리 정해 둔 표본 위치(`startSample`)로 잡는다.
+   * 창이 달라도 같은 자리가 나와야 경계에서 파형이 어긋나지 않는다 —
+   * 창 시작도 같은 방식으로 표본으로 바꾼다.
+   */
   private async readWindow(segStart: number, samples: number): Promise<Float32Array> {
-    const segEnd = segStart + SEGMENT_MS;
+    const base = Math.round((segStart / 1000) * AUDIO_SAMPLE_RATE);
     const out = new Float32Array(samples); // 기본값 0 = 무음 (갭 채우기)
     for (const ref of this.refs) {
-      if (ref.endMs <= segStart) continue;
-      if (ref.startMs >= segEnd) break;
+      if (ref.endSample <= base) continue;
+      if (ref.startSample >= base + samples) break;
       const bytes = await this.src.read(ref.offset, ref.size);
       const pcm = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       const count = Math.floor(bytes.byteLength / 2);
-      const baseSample = Math.round(((ref.startMs - segStart) / 1000) * AUDIO_SAMPLE_RATE);
+      const baseSample = ref.startSample - base;
       for (let s = 0; s < count; s++) {
         const dst = baseSample + s;
         if (dst < 0) continue;
@@ -190,21 +228,39 @@ export class AudioPlayer {
         }
         // 주차 구간처럼 통째로 무음이면 노드를 만들지 않는다 (긴 공백이 흔하다)
         if (!silent) {
-          const buffer = this.ctx.createBuffer(1, chunk.length, AUDIO_SAMPLE_RATE);
-          buffer.getChannelData(0).set(chunk);
-          const node = this.ctx.createBufferSource();
-          node.buffer = buffer;
-          node.connect(this.gain);
+          // 예약해야 할 시각이 이미 지났을 수 있다 (구간 전환·GC 등으로 본선이
+          // 멎었을 때). 그때 그냥 "지금"으로 당겨 넣으면 뒤따르는 조각과 겹쳐
+          // 겹쳐 울리며 뭉개진다. 지나간 만큼은 **버리고** 남은 데서 잇는다 —
+          // 소리가 조금 빠지는 편이 뭉개지는 것보다 낫고, A/V도 어긋나지 않는다.
           const when = this.originCtx + (segStart - this.originMs) / 1000 / this.speed;
-          node.start(Math.max(when, this.ctx.currentTime));
-          node.onended = () => {
-            const i = this.sources.indexOf(node);
-            if (i >= 0) this.sources.splice(i, 1);
-          };
-          this.sources.push(node);
+          const now = this.ctx.currentTime;
+          let data = chunk;
+          let at = when;
+          if (when < now) {
+            const skip = Math.round((now - when) * AUDIO_SAMPLE_RATE);
+            if (skip < data.length) {
+              data = data.subarray(skip);
+              at = now;
+            } else {
+              data = data.subarray(0, 0);
+            }
+          }
+          if (data.length > 0) {
+            const buffer = this.ctx.createBuffer(1, data.length, AUDIO_SAMPLE_RATE);
+            buffer.getChannelData(0).set(data);
+            const node = this.ctx.createBufferSource();
+            node.buffer = buffer;
+            node.connect(this.gain);
+            node.start(at);
+            node.onended = () => {
+              const i = this.sources.indexOf(node);
+              if (i >= 0) this.sources.splice(i, 1);
+            };
+            this.sources.push(node);
+          }
         }
         this.scheduledMs = segStart + SEGMENT_MS;
-        if (this.refs.length > 0 && segStart > this.refs[this.refs.length - 1].endMs) break;
+        if (segStart > this.lastAudioMs) break;
       }
     } finally {
       this.scheduling = false;
