@@ -232,7 +232,13 @@ body {
   margin-bottom: var(--safe-b);
 }
 .tabs { order: 2; flex: 0 0 auto; border-bottom: 0; border-top: 1px solid var(--border); }
-.tab-panels { order: 1; flex: 1 1 auto; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+/* 패널 안 내용은 **자기들끼리만 층을 겨룬다.**
+   Leaflet은 제 안에서 층을 쌓으려고 z-index를 크게 쓴다(판 400, 조작 800,
+   구석 1000). 그런데 여기와 앱 사이에 층을 가르는 것이 없으면 그 숫자가
+   앱 전체와 겨루게 되어, 스크롤해서 지도가 위로 올라가면 경로선과 +/- 단추가
+   **도크(5)와 탭바(4) 위에 그려진다** — 시계와 재생 단추를 가로질러 선이
+   지나갔다. isolation으로 여기서 층을 끊으면 그 숫자들이 밖으로 새지 않는다. */
+.tab-panels { order: 1; flex: 1 1 auto; overflow-y: auto; min-height: 0; overscroll-behavior: contain; isolation: isolate; }
 .tab.is-active { border-bottom-color: transparent; border-top: 2px solid var(--accent); margin-top: -1px; }
 
 /* 넓은 화면 = 데스크톱 **또는 눕힌 폰**. 폭만 보면 844×390이 세로 배치로

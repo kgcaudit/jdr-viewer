@@ -14,7 +14,28 @@ export class GpsMap {
    */
   private fitted = false;
 
+  private ro: ResizeObserver | null = null;
+
   constructor(private readonly el: HTMLElement) {}
+
+  /**
+   * 칸 크기가 바뀌면 스스로 다시 잰다.
+   *
+   * Leaflet은 만들어질 때 잰 크기만큼만 타일을 받는다. 그래서 칸이 커지면
+   * 커진 만큼은 **빈 회색으로 남는다.** 지금까지는 탭을 누를 때와 창 크기가
+   * 바뀔 때만 알려 주고 있었는데, 영상을 접거나 화면 배치가 바뀌는 것은
+   * 그 둘 어디에도 걸리지 않는다. 칸 자체를 지켜보면 빠짐이 없다.
+   */
+  private watch(): void {
+    if (this.ro || typeof ResizeObserver === 'undefined') return;
+    let pending = 0;
+    this.ro = new ResizeObserver(() => {
+      // 한 번에 몰아서 — 크기가 연달아 바뀌는 동안 매번 다시 재지 않는다
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(() => this.map?.invalidateSize());
+    });
+    this.ro.observe(this.el);
+  }
 
   /** 위/경도가 0인 행은 위성 미수신이므로 경로에서 뺀다 (안 그러면 기니만으로 선이 튄다). */
   static validFixes(fixes: GpsFix[]): GpsFix[] {
@@ -35,6 +56,7 @@ export class GpsMap {
         maxZoom: 19,
         attribution: '© OpenStreetMap contributors',
       }).addTo(this.map);
+      this.watch();
     }
     const latlngs = valid.map((g) => [g.lat, g.lon] as [number, number]);
     this.track?.remove();

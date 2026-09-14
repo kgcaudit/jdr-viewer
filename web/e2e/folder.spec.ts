@@ -1340,3 +1340,53 @@ test.describe('한국 시간대', () => {
   });
 });
 
+
+
+test('지도가 도크·탭바 위로 삐져나오지 않는다', async ({ page }) => {
+  // 스크롤해서 지도가 위로 올라가면 경로선과 +/- 단추가 **시계와 재생 단추를
+  // 가로질러** 그려졌다. Leaflet이 제 안에서 층을 쌓으려고 쓰는 z-index
+  // (판 400, 조작 800, 구석 1000)가 도크(5)·탭바(4)와 그대로 겨루고 있었다.
+  // 층을 패널 안에서 끊으면 그 숫자가 밖으로 새지 않는다.
+  await page.setViewportSize({ width: 412, height: 575 });
+  await openMorningSession(page);
+  await page.locator('[data-tab="map"]').click();
+  await page.waitForTimeout(400);
+
+  const got = await page.evaluate(() => {
+    // 층을 새로 여는(stacking context) 가장 가까운 조상을 찾는다
+    const opensLayer = (el: Element): boolean => {
+      const cs = getComputedStyle(el);
+      return cs.isolation === 'isolate' ||
+        (cs.position !== 'static' && cs.zIndex !== 'auto') ||
+        Number(cs.opacity) < 1 || cs.transform !== 'none' || cs.filter !== 'none' ||
+        /paint|layout|strict|content/.test(cs.contain);
+    };
+    let el: Element | null = document.getElementById('map')!.parentElement;
+    while (el && el !== document.documentElement) {
+      if (opensLayer(el)) return el.className;
+      el = el.parentElement;
+    }
+    return null;  // 뿌리까지 갔다 = 지도의 z-index가 앱 전체와 겨룬다
+  });
+
+  expect(got, '지도의 층이 패널 안에서 끊겨야 한다').toContain('tab-panels');
+});
+
+test('지도 칸이 커지면 스스로 다시 잰다', async ({ page }) => {
+  // Leaflet은 만들어질 때 잰 크기만큼만 타일을 받는다. 칸이 커져도 알려 주지
+  // 않으면 커진 만큼이 **빈 회색으로 남는다.** 탭 누르기·창 크기 말고도
+  // 배치가 바뀌는 길이 있으므로 칸 자체를 지켜본다.
+  await page.setViewportSize({ width: 412, height: 915 });
+  await openMorningSession(page);
+  await page.locator('[data-tab="map"]').click();
+  await page.waitForTimeout(400);
+
+  const paneH = () => page.evaluate(() =>
+    Math.round(document.querySelector('.leaflet-overlay-pane svg')!.getBoundingClientRect().height));
+  const before = await paneH();
+
+  await page.evaluate(() => { (document.getElementById('map') as HTMLElement).style.height = '560px'; });
+  await page.waitForTimeout(400);
+
+  expect(await paneH(), '커진 칸만큼 지도도 넓어진다').toBeGreaterThan(before + 100);
+});
