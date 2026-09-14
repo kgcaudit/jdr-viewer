@@ -1390,3 +1390,91 @@ test('지도 칸이 커지면 스스로 다시 잰다', async ({ page }) => {
 
   expect(await paneH(), '커진 칸만큼 지도도 넓어진다').toBeGreaterThan(before + 100);
 });
+
+test('현재 주행 위치 — 누를 때만 지금 지점으로 간다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('[data-tab="map"]').click();
+  await page.waitForTimeout(400);
+
+  // 전체 경로 보기로 물러나 둔다 (실제로 이렇게 쓰다가 현재 위치를 찾는다)
+  await page.locator('#btn-fit-map').click();
+  await page.waitForTimeout(300);
+
+  // 재생을 조금 진행시켜 표식을 출발점에서 떼어 놓는다
+  await page.locator('#btn-play').click();
+  await page.waitForTimeout(900);
+  await page.locator('#btn-play').click();
+
+  const read = () => page.evaluate(() => {
+    const m = document.querySelector('.leaflet-marker-pane, .leaflet-overlay-pane')!;
+    const dot = document.querySelector('.leaflet-interactive:not(path[stroke-width="4"])') as SVGGraphicsElement | null;
+    const box = document.getElementById('map')!.getBoundingClientRect();
+    const d = (dot ?? m).getBoundingClientRect();
+    return {
+      // 표식이 지도 가운데에서 얼마나 떨어져 있나
+      dx: Math.abs((d.x + d.width / 2) - (box.x + box.width / 2)),
+      dy: Math.abs((d.y + d.height / 2) - (box.y + box.height / 2)),
+      zoom: Number(document.querySelector('.leaflet-container')!.className.match(/zoom-(\d+)/)?.[1] ?? 0),
+    };
+  });
+
+  const before = await read();
+
+  await page.locator('#btn-here-map').click();
+  await page.waitForTimeout(500);
+  const after = await read();
+
+  // 누르면 지금 지점이 지도 한가운데로 온다
+  expect(after.dx, '가로로 가운데').toBeLessThan(4);
+  expect(after.dy, '세로로 가운데').toBeLessThan(4);
+  // 멀리 물러나 있었으면 거리까지 보이게 당긴다
+  expect(before.dx + before.dy, '누르기 전에는 가운데가 아니었다').toBeGreaterThan(8);
+});
+
+test('현재 주행 위치는 재생만으로는 지도를 끌고 다니지 않는다', async ({ page }) => {
+  // 자동으로 따라가면 손으로 옮겨 살펴보던 것이 매번 튕겨 나간다.
+  await openMorningSession(page);
+  await page.locator('[data-tab="map"]').click();
+  await page.waitForTimeout(400);
+
+  const centre = () => page.evaluate(() => {
+    const t = getComputedStyle(document.querySelector('.leaflet-map-pane')!).transform;
+    return t;
+  });
+  const before = await centre();
+
+  await page.locator('#btn-play').click();
+  await page.waitForTimeout(1200);
+  await page.locator('#btn-play').click();
+
+  expect(await centre(), '재생해도 지도는 그 자리에 있다').toBe(before);
+});
+
+
+test('설명 글이 길어도 두 단추가 화면 밖으로 나가지 않는다', async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 780 });
+  await openMorningSession(page);
+  await page.locator('[data-tab="map"]').click();
+  await page.waitForTimeout(300);
+
+  // 실기에서 실제로 나오는 긴 문구
+  await page.evaluate(() => {
+    document.getElementById('map-note')!.textContent = '586개 지점 표시 · 위성 미수신 547건 제외';
+  });
+  await page.waitForTimeout(100);
+
+  const box = await page.evaluate(() => {
+    const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
+    return {
+      here: Math.round(r('#btn-here-map').right),
+      fit: Math.round(r('#btn-fit-map').right),
+      bar: Math.round(r('.map-bar').right),
+      scrollW: document.documentElement.scrollWidth,
+      clientW: document.documentElement.clientWidth,
+    };
+  });
+
+  expect(box.scrollW, '가로로 밀려나면 안 된다').toBeLessThanOrEqual(box.clientW);
+  expect(box.here, '현재 주행 위치가 칸 안에 있다').toBeLessThanOrEqual(box.bar + 1);
+  expect(box.fit, '전체 경로 보기가 칸 안에 있다').toBeLessThanOrEqual(box.bar + 1);
+});

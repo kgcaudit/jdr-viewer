@@ -1016,6 +1016,13 @@ $('btn-fit-map').addEventListener('click', () => {
   if (!map?.fitAll()) toast('표시할 경로가 없습니다');
 });
 
+// 재생을 따라 자동으로 끌어오지는 않는다 — 눌렀을 때만 간다.
+$('btn-here-map').addEventListener('click', () => {
+  const at = map?.showCurrent();
+  if (!at) { toast('아직 이 구간의 위치를 모릅니다 (GPS 미수신이거나 스캔 전)'); return; }
+  toast(`현재 주행 위치 · ${formatRecordedTime(at.timeMs, false)} · ${at.speed.toFixed(1)} km/h`);
+});
+
 // ── 화면 잠김 방지 ───────────────────────────────────
 
 /**

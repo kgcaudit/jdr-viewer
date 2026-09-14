@@ -3,11 +3,16 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { GpsFix } from '../core/types';
 
+/** '현재 주행 위치'로 옮길 때 최소한 이만큼은 당긴다 (거리 이름이 보이는 배율) */
+const FOCUS_ZOOM = 17;
+
 export class GpsMap {
   private map: L.Map | null = null;
   private track: L.Polyline | null = null;
   private marker: L.CircleMarker | null = null;
   private fixes: GpsFix[] = [];
+  /** 표식이 지금 놓인 지점 — '현재 주행 위치'가 돌려준다 */
+  private current: GpsFix | null = null;
   /**
    * 처음 한 번만 경로에 맞춰 화면을 잡는다.
    * 구간이 바뀔 때마다 다시 맞추면 사용자가 확대해 둔 위치가 리셋된다.
@@ -62,6 +67,7 @@ export class GpsMap {
     this.track?.remove();
     this.track = L.polyline(latlngs, { color: '#2b6cb0', weight: 4, opacity: 0.85 }).addTo(this.map);
     this.marker?.remove();
+    this.current = valid[0];
     this.marker = L.circleMarker(latlngs[0], {
       radius: 7, color: '#fff', weight: 2, fillColor: '#e53e3e', fillOpacity: 1,
     }).addTo(this.map);
@@ -81,7 +87,23 @@ export class GpsMap {
       else break;
     }
     this.marker.setLatLng([best.lat, best.lon]);
+    this.current = best;
     return best;
+  }
+
+  /**
+   * 지금 재생 중인 지점이 보이게 옮긴다.
+   *
+   * **누를 때만** 움직인다. 재생을 따라 계속 가운데로 끌어오면 지도를 손으로
+   * 옮겨 살펴보던 것이 매번 튕겨 나간다.
+   *
+   * 배율은 사용자가 맞춰 둔 것을 지키되, '전체 경로 보기'처럼 멀리 물러나
+   * 있을 때는 거리까지 보이게 당긴다 — 점만 찍히면 어디인지 알 수 없다.
+   */
+  showCurrent(): GpsFix | null {
+    if (!this.map || !this.marker) return null;
+    this.map.setView(this.marker.getLatLng(), Math.max(this.map.getZoom(), FOCUS_ZOOM));
+    return this.current ?? this.fixes[0] ?? null;
   }
 
   /** 전체 경로가 다 보이도록 다시 맞춘다 (사용자가 눌렀을 때만) */

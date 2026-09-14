@@ -605,8 +605,11 @@ body {
 .chip-btn.is-active { border-color: var(--accent); background: var(--surface-2); }
 .chip-sub { font-size: 11px; color: var(--muted); font-weight: 400; }
 
-.map-bar { display: flex; align-items: center; justify-content: space-between; gap:10px; margin-top:var(--s-2); }
-.map-bar p { margin:0; }
+/* 좁은 화면에서는 단추 둘이 설명 글과 한 줄에 다 들어가지 않는다.
+   줄바꿈을 허용하되 단추 둘은 서로 떨어지지 않게 묶는다. */
+.map-bar { display: flex; align-items: center; justify-content: space-between; gap:10px; margin-top:var(--s-2); flex-wrap: wrap; }
+.map-bar p { margin:0; flex: 1 1 auto; min-width: 0; }
+.map-acts { display: flex; gap:6px; flex: 0 0 auto; margin-left: auto; }
 .btn-sm { min-height: var(--tap); padding:5px 10px; font-size: var(--t-micro); flex: 0 0 auto; }
 
 /*
