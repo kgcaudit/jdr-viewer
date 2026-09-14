@@ -946,16 +946,13 @@ body {
     background: var(--bg);
     padding-top: var(--s-2);
   }
-  /* 붙어 있는 동안에는 곁가지를 접어 자리를 아낀다 */
-  .is-docked .stage-dock .note-row,
-  .is-docked .stage-dock .session-chips,
-  .is-docked .stage-dock #debug-note { display: none; }
-  .is-docked .stage-dock .ctl-transport > *:not(#btn-play):not(.ctl-gap) { display: none; }
-  .is-docked .stage-dock .controls { flex-direction: row; align-items: center; gap:var(--s-2); }
-  .is-docked .stage-dock .ctl-transport { flex: 0 0 auto; }
-  .is-docked .stage-dock .ctl-scrub { flex: 1 1 auto; min-width: 0; }
-  .is-docked .stage-dock .time-rel { display: none; }
-  .is-docked .stage-dock .time-clock { font-size: var(--t-title); }
+  /* **붙어도 높이가 변하지 않는다.** 붙을 때 내용을 접어 줄이면 그만큼
+     아래가 튀어 오른다(271→150으로 줄며 121px이 튀었다). 도크에는 컨트롤과
+     띠만 두고, 곁가지는 도크 밖에 둬서 자연히 스크롤되게 했다.
+     붙었다는 표시는 **그림자로만** 한다 — 배치를 건드리지 않는다. */
+  .is-docked .stage-dock {
+    box-shadow: 0 6px 12px -8px rgba(16, 20, 28, 0.45);
+  }
 
   /* 패널은 길이 제한 없이 흐른다. 탭은 도크 바로 아래에 붙는다.
      **overflow: hidden 을 반드시 풀어야 한다** — 부모가 overflow를 가지면

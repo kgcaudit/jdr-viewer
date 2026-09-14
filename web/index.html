@@ -148,12 +148,6 @@
               aria-label="영상 접기" title="영상 접기">⌄</button>
           </div>
         </div>
-        <div class="note-row">
-          <p id="file-note" class="file-note"></p>
-          <button id="btn-wake" class="wake-chip" type="button" hidden></button>
-        </div>
-        <p id="debug-note" class="file-note" hidden></p>
-        <div id="session-chips" class="session-chips" hidden></div>
         <div id="timeline-strip" class="strip" hidden>
           <div id="strip-bubble" class="strip-bubble" hidden></div>
           <div id="strip-track" class="strip-track"></div>
@@ -163,6 +157,15 @@
           </div>
         </div>
         </div><!-- /stage-dock -->
+        <!-- 곁가지는 도크 밖에 둔다. 안에 두고 붙을 때만 숨기면 **도크 높이가
+             271→150으로 바뀌면서 아래 내용이 121px 튀어 오른다.**
+             붙어도 높이가 안 변해야 튀지 않는다. -->
+        <div class="note-row">
+          <p id="file-note" class="file-note"></p>
+          <button id="btn-wake" class="wake-chip" type="button" hidden></button>
+        </div>
+        <p id="debug-note" class="file-note" hidden></p>
+        <div id="session-chips" class="session-chips" hidden></div>
         <p id="recorded-time" class="recorded-time"></p>
       </section>
 

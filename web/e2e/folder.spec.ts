@@ -1044,6 +1044,33 @@ test('좁은 화면에서 스크롤해도 벽시계·띠·재생이 위에 붙�
   expect(top.video, '맨 위에서는 영상이 보인다').toBe(true);
 });
 
+test('붙어도 도크 높이가 그대로다 — 튀지 않는다', async ({ page }) => {
+  // 붙을 때 도크 안을 접어 줄였더니(271→150) 그만큼 아래가 위로 튀어 올랐다.
+  // 튀어 오르면 경계가 다시 화면에 들어와 붙었다/떨어졌다를 되풀이한다.
+  // 도크에는 컨트롤과 띠만 두고, 곁가지는 도크 밖으로 내보내 높이를 못박았다.
+  for (const height of [545, 620, 915]) {
+    await page.setViewportSize({ width: 412, height });
+    await openMorningSession(page);
+    await page.locator('[data-tab="export"]').click();
+
+    const dockH = () => page.evaluate(() => ({
+      h: Math.round(document.getElementById('stage-dock')!.getBoundingClientRect().height),
+      docked: document.body.classList.contains('is-docked'),
+    }));
+
+    const before = await dockH();
+    expect(before.docked, `${height}: 맨 위에서는 떨어져 있다`).toBe(false);
+
+    const scroller = page.locator('#view-main');
+    await scroller.evaluate((e) => { e.scrollTop = e.scrollHeight; });
+    await page.waitForTimeout(250);
+    const after = await dockH();
+
+    expect(after.docked, `${height}: 붙어야 한다`).toBe(true);
+    expect(after.h, `${height}: 붙어도 높이가 같아야 한다`).toBe(before.h);
+  }
+});
+
 test('넓은 화면에서는 캘린더가 좌우로 갈린다 — 고르는 곳과 결과', async ({ page }) => {
   // 세로로만 쌓으면 폭이 아무리 넓어도 상세가 시작하는 자리가 512px로 고정이라,
   // 날짜를 고를 때마다 스크롤로 왕복해야 했다. 인덱스 저장 버튼은 1024x768에서도
