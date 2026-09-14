@@ -262,42 +262,24 @@ body {
  */
 .video-grid { display: grid; gap:10px; grid-template-columns: 1fr; }
 @container stage (max-width: 519px) {
+  /* 휴대폰에서는 **한 번에 한 대만** 본다.
+   *
+   * 처음엔 전방을 크게, 후방을 모서리에 겹쳐 놓았다(PIP). 그런데 겹친 것을
+   * 한 번 누르면 바뀌는데 **다시 눌러도 안 돌아왔다.** 원인은 격자 항목이
+   * `position: static`이어도 z-index가 먹힌다는 점이다 — 뒤바뀐 큰 칸이
+   * DOM 순서상 뒤에 있으면서 같은 z-index라 작은 칸을 덮어 버렸다.
+   *
+   * 애초에 좁은 화면에서 두 대를 동시에 볼 이유가 없다. 겹치지 않으면
+   * 가려질 일도 없다 — 딱지를 눌러 바꾼다.
+   */
   .video-grid { position: relative; gap:0; }
-  /* 앞에 온 쪽이 크게, 나머지가 작게. is-swapped면 순서만 뒤집는다. */
-  .video-grid > .video-cell:first-child { grid-area: 1 / 1; }
-  .video-grid > .video-cell:last-child {
-    position: absolute;
-    right: var(--s-2);
-    bottom: var(--s-2);
-    width: 34%;
-    min-width: 108px;
-    z-index: 2;
-    border-radius: var(--s-2);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-    cursor: pointer;
-  }
-  .video-grid.is-swapped > .video-cell:first-child {
-    position: absolute;
-    right: var(--s-2);
-    bottom: var(--s-2);
-    width: 34%;
-    min-width: 108px;
-    z-index: 2;
-    border-radius: var(--s-2);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-    cursor: pointer;
-  }
-  .video-grid.is-swapped > .video-cell:last-child {
-    position: static;
-    width: auto;
-    grid-area: 1 / 1;
-    box-shadow: none;
-    border-radius: var(--radius);
-  }
-  /* 작은 쪽의 라벨은 자리를 많이 먹으므로 줄인다 */
-  .video-cell[style], .video-grid > .video-cell:last-child .cell-note { display: none; }
-  .video-grid.is-swapped > .video-cell:first-child .cell-note { display: none; }
+  .video-grid > .video-cell { grid-area: 1 / 1; }
+  .video-grid > .video-cell:last-child { display: none; }
+  .video-grid.is-rear > .video-cell:first-child { display: none; }
+  .video-grid.is-rear > .video-cell:last-child { display: block; }
+  .chip-swap-mark { display: inline; }
 }
+
 @container stage (min-width: 520px) {
   .video-grid { grid-template-columns: 1fr 1fr; }
 }
@@ -916,3 +898,18 @@ body {
   color: var(--muted);
 }
 .is-stage-folded #btn-fold-stage { color: var(--accent); }
+
+/* 채널 딱지 = 전환 버튼.
+   figcaption 자체는 pointer-events: none 이라 영상 위 글자가 조작을 막지
+   않는다. 누를 수 있어야 하는 건 이 딱지뿐이므로 여기서만 되살린다. */
+.chip-swap {
+  pointer-events: auto;
+  cursor: pointer;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: var(--tap);
+}
+/* 나란히 보이는 넓은 화면에서는 바꿀 것이 없다 — 표식도 숨긴다 */
+.chip-swap-mark { display: none; font-size: var(--t-micro); opacity: .8; }

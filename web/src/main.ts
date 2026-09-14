@@ -156,20 +156,21 @@ folderInput.addEventListener('change', () => {
 });
 
 /**
- * 좁은 화면에서는 전방을 크게, 후방을 모서리에 겹쳐 둔다. 작은 쪽을 탭하면
- * 서로 바뀐다 — 후방을 자세히 봐야 할 때가 있는데 그때마다 폰을 눕히라고
- * 할 수는 없다. 자리만 바뀌고 재생은 건드리지 않는다.
+ * 휴대폰에서는 **한 번에 한 대만** 본다. 채널 딱지를 누르면 바뀐다.
+ *
+ * 처음엔 전방을 크게, 후방을 모서리에 겹쳐 두었는데(PIP) 한 번 누르면
+ * 바뀌고 **다시 눌러도 안 돌아왔다.** 겹쳐 놓으면 가려질 수 있다는 것이
+ * 문제의 뿌리였다. 좁은 화면에서 두 대를 동시에 볼 이유도 없으므로,
+ * 겹치지 않게 하나만 보여 준다. 자리만 바뀌고 재생은 건드리지 않는다.
  */
 $('video-grid').addEventListener('click', (e) => {
+  if (!(e.target as HTMLElement).closest('[data-swap-ch]')) return;
   const grid = $('video-grid');
-  // 넓은 화면에서는 둘 다 크게 나오므로 바꿀 것이 없다
-  if (!getComputedStyle(grid.lastElementChild as Element).position.includes('absolute')
-      && !grid.classList.contains('is-swapped')) return;
-  const cell = (e.target as HTMLElement).closest('.video-cell');
-  if (!cell) return;
-  const small = grid.classList.contains('is-swapped') ? grid.firstElementChild : grid.lastElementChild;
-  if (cell !== small) return;
-  grid.classList.toggle('is-swapped');
+  // 나란히 보이는 넓은 화면에서는 바꿀 것이 없다.
+  // 중단점을 코드에 또 적지 않고 **실제 배치**로 판단한다.
+  const hidden = [...grid.children].some((c) => getComputedStyle(c).display === 'none');
+  if (!hidden) return;
+  grid.classList.toggle('is-rear');
 });
 
 /**

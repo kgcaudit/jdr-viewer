@@ -87,11 +87,21 @@
         <div id="video-grid" class="video-grid">
           <figure class="video-cell" data-channel="0">
             <canvas id="canvas-0" width="1280" height="720"></canvas>
-            <figcaption class="cell-cap"><span class="chip">전방 CH0</span><span id="ch0-note" class="cell-note"></span></figcaption>
+            <figcaption class="cell-cap">
+              <!-- 좁은 화면에서는 한 번에 한 대만 본다. 이 딱지가 곧 전환 버튼이다 —
+                   새 줄을 만들지 않으므로 세로를 더 쓰지 않는다. -->
+              <button class="chip chip-swap" type="button" data-swap-ch
+                aria-label="후방 화면으로 바꾸기">전방 CH0<span class="chip-swap-mark" aria-hidden="true">⇄</span></button>
+              <span id="ch0-note" class="cell-note"></span>
+            </figcaption>
           </figure>
           <figure class="video-cell" data-channel="1">
             <canvas id="canvas-1" width="1280" height="720"></canvas>
-            <figcaption class="cell-cap"><span class="chip">후방 CH1</span><span id="ch1-note" class="cell-note"></span></figcaption>
+            <figcaption class="cell-cap">
+              <button class="chip chip-swap" type="button" data-swap-ch
+                aria-label="전방 화면으로 바꾸기">후방 CH1<span class="chip-swap-mark" aria-hidden="true">⇄</span></button>
+              <span id="ch1-note" class="cell-note"></span>
+            </figcaption>
           </figure>
         </div>
 

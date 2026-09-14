@@ -962,26 +962,37 @@ test('탐색 막대 위치와 시간 표시가 어긋나지 않는다', async ({
   }
 });
 
-test('좁은 화면에서 후방 영상을 탭하면 전방과 자리가 바뀐다', async ({ page }) => {
-  // 16:9 두 칸을 쌓으면 390px 폭에서 440px다. 화면 절반을 넘게 쓰는 바람에
-  // 아래쪽 탭바가 화면 밖으로 밀려났다. 전방을 크게, 후방은 모서리에 겹친다.
-  await page.setViewportSize({ width: 390, height: 844 });
+test('휴대폰에서는 한 번에 한 대만 보이고, 딱지를 눌러 오간다', async ({ page }) => {
+  // PIP로 겹쳐 놓았더니 한 번 누르면 바뀌는데 **다시 눌러도 안 돌아왔다.**
+  // 격자 항목은 position:static이어도 z-index가 먹혀, 뒤바뀐 큰 칸이 DOM
+  // 순서상 뒤에 있으면서 같은 z-index라 작은 칸을 덮어 버렸다.
+  // 겹치지 않으면 가려질 일도 없다.
+  await page.setViewportSize({ width: 412, height: 915 });
   await openMorningSession(page);
 
-  const grid = page.locator('#video-grid');
-  const rear = grid.locator('.video-cell').nth(1);
-  const front = grid.locator('.video-cell').nth(0);
+  const shown = () => page.evaluate(() =>
+    [...document.querySelectorAll('.video-cell')].map((c) => getComputedStyle(c).display !== 'none'));
 
-  const rearBox = await rear.boundingBox();
-  const frontBox = await front.boundingBox();
-  expect(rearBox!.width, '후방이 작게 겹쳐 있어야 한다').toBeLessThan(frontBox!.width / 2);
+  expect(await shown(), '처음엔 전방만 보인다').toEqual([true, false]);
 
-  await rear.click({ position: { x: 10, y: 10 } });
-  await expect(grid).toHaveClass(/is-swapped/);
+  await page.locator('.video-cell').first().locator('[data-swap-ch]').click();
+  expect(await shown(), '후방으로 바뀐다').toEqual([false, true]);
 
-  const swappedFront = await front.boundingBox();
-  const swappedRear = await rear.boundingBox();
-  expect(swappedFront!.width, '이제 전방이 작아진다').toBeLessThan(swappedRear!.width / 2);
+  // **다시 눌러도 돌아와야 한다** — 이게 안 되던 것이 이번 버그다
+  await page.locator('.video-cell').nth(1).locator('[data-swap-ch]').click();
+  expect(await shown(), '전방으로 되돌아온다').toEqual([true, false]);
+});
+
+test('넓은 화면에서는 두 대를 나란히 두고 전환하지 않는다', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openMorningSession(page);
+  const shown = () => page.evaluate(() =>
+    [...document.querySelectorAll('.video-cell')].map((c) => getComputedStyle(c).display !== 'none'));
+  expect(await shown()).toEqual([true, true]);
+
+  // 딱지를 눌러도 하나가 사라지면 안 된다
+  await page.locator('.video-cell').first().locator('[data-swap-ch]').click();
+  expect(await shown()).toEqual([true, true]);
 });
 
 test('앱 셸 — 패널을 스크롤해도 벽시계와 띠가 화면에 남는다', async ({ page }) => {
@@ -1128,9 +1139,9 @@ test('영상 배치는 화면 폭이 아니라 무대 폭으로 정한다', asyn
   const narrowStage = await page.evaluate(() => {
     const front = document.querySelector('#canvas-0')!.getBoundingClientRect();
     const rear = document.querySelector('.video-cell:last-child')!;
-    return { frontW: Math.round(front.width), pip: getComputedStyle(rear).position === 'absolute' };
+    return { frontW: Math.round(front.width), single: getComputedStyle(rear).display === 'none' };
   });
-  expect(narrowStage.pip, '무대가 좁으면 후방은 PIP가 된다').toBe(true);
+  expect(narrowStage.single, '무대가 좁으면 한 번에 한 대만 보인다').toBe(true);
   expect(narrowStage.frontW, '전방이 무대 폭을 다 써야 한다').toBeGreaterThan(450);
 
   // 무대가 넓어지면 나란히 놓는다
@@ -1138,9 +1149,9 @@ test('영상 배치는 화면 폭이 아니라 무대 폭으로 정한다', asyn
   await page.waitForTimeout(200);
   const wideStage = await page.evaluate(() => {
     const rear = document.querySelector('.video-cell:last-child')!;
-    return { pip: getComputedStyle(rear).position === 'absolute' };
+    return { single: getComputedStyle(rear).display === 'none' };
   });
-  expect(wideStage.pip, '무대가 넓으면 전방·후방을 나란히 놓는다').toBe(false);
+  expect(wideStage.single, '무대가 넓으면 전방·후방을 나란히 놓는다').toBe(false);
 });
 
 test('영상을 접으면 표 볼 공간이 세 배가 되고, 벽시계·띠·재생은 남는다', async ({ page }) => {
