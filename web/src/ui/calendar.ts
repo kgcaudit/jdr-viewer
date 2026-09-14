@@ -179,26 +179,38 @@ export function renderCalendar(
           .join('')}</div>`
       : '';
 
+  // 고르는 곳(달력)과 결과(그 날의 운행)를 나눠 담는다.
+  //
+  // 세로로만 쌓으면 폭이 아무리 넓어져도 상세가 시작하는 자리가 512px로
+  // 고정이라, 날짜를 고를 때마다 스크롤로 왕복해야 한다. 넓은 화면에서는
+  // 좌우로 갈라 **달력은 제자리에 두고 오른쪽만 바뀌게** 한다.
+  //
+  // DOM 순서는 좁은 화면의 읽는 순서(달력 → 상세) 그대로다. 자리 바꾸기는
+  // CSS가 한다 — 기존 선택자와 접근성 순서를 지키기 위해서다.
   el.innerHTML = `
-    <div class="cal-head">
-      <button class="btn btn-icon" type="button" data-month="${monthIndex - 1}" ${monthIndex <= 0 ? 'disabled' : ''} aria-label="이전 달">‹</button>
-      <strong class="cal-title">${month.year}년 ${month.month}월</strong>
-      <button class="btn btn-icon" type="button" data-month="${monthIndex + 1}" ${
-        monthIndex >= index.months.length - 1 ? 'disabled' : ''
-      } aria-label="다음 달">›</button>
+    <div class="cal-master">
+      <div class="cal-head">
+        <button class="btn btn-icon" type="button" data-month="${monthIndex - 1}" ${monthIndex <= 0 ? 'disabled' : ''} aria-label="이전 달">‹</button>
+        <strong class="cal-title">${month.year}년 ${month.month}월</strong>
+        <button class="btn btn-icon" type="button" data-month="${monthIndex + 1}" ${
+          monthIndex >= index.months.length - 1 ? 'disabled' : ''
+        } aria-label="다음 달">›</button>
+      </div>
+      <div class="cal-weekdays">${WEEKDAYS.map((w, i) => `<span class="${i === 0 ? 'is-sun' : i === 6 ? 'is-sat' : ''}">${w}</span>`).join('')}</div>
+      <div class="cal-grid">${cells.map((c) => dayCell(c, index, selectedDay)).join('')}</div>
+      <p class="muted small cal-hint">막대 높이는 그날 녹화량입니다. 날짜를 누르면 운행별로 나뉩니다.</p>
+      ${folderBox}
     </div>
-    ${folderBox}
-    <div class="cal-weekdays">${WEEKDAYS.map((w, i) => `<span class="${i === 0 ? 'is-sun' : i === 6 ? 'is-sat' : ''}">${w}</span>`).join('')}</div>
-    <div class="cal-grid">${cells.map((c) => dayCell(c, index, selectedDay)).join('')}</div>
-    <p class="muted small cal-hint">막대 높이는 그날 녹화량입니다. 날짜를 누르면 운행별로 나뉩니다.</p>
-    <div class="cal-detail">${day ? sessionList(day) : '<p class="muted">날짜를 선택하세요.</p>'}</div>
-    <p class="section-title">전체</p>
-    <dl class="kv">
-      <dt>기간</dt><dd>${formatRecordedTime(index.days[0].startMs, false)}<br>~ ${formatRecordedTime(index.days[index.days.length - 1].endMs, false)}</dd>
-      <dt>날짜</dt><dd>${num(index.days.length)}일</dd>
-      <dt>파일</dt><dd>${num(index.totalSegments)}개 · ${bytes(index.totalBytes)}</dd>
-    </dl>
-    ${loadSection(stats)}
+    <div class="cal-side">
+      <div class="cal-detail" id="cal-detail">${day ? sessionList(day) : '<p class="muted">날짜를 선택하세요.</p>'}</div>
+      <p class="section-title">전체</p>
+      <dl class="kv">
+        <dt>기간</dt><dd>${formatRecordedTime(index.days[0].startMs, false)}<br>~ ${formatRecordedTime(index.days[index.days.length - 1].endMs, false)}</dd>
+        <dt>날짜</dt><dd>${num(index.days.length)}일</dd>
+        <dt>파일</dt><dd>${num(index.totalSegments)}개 · ${bytes(index.totalBytes)}</dd>
+      </dl>
+      ${loadSection(stats)}
+    </div>
   `;
 
   el.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) =>

@@ -1014,3 +1014,56 @@ test('앱 셸 — 패널을 스크롤해도 벽시계와 띠가 화면에 남는
   expect(state.tabsGap, '탭바가 화면 아래에 붙어 있어야 한다').toBeLessThanOrEqual(2);
   expect(state.pageScroll, '페이지 자체는 스크롤하지 않는다').toBe(0);
 });
+
+test('넓은 화면에서는 캘린더가 좌우로 갈린다 — 고르는 곳과 결과', async ({ page }) => {
+  // 세로로만 쌓으면 폭이 아무리 넓어도 상세가 시작하는 자리가 512px로 고정이라,
+  // 날짜를 고를 때마다 스크롤로 왕복해야 했다. 인덱스 저장 버튼은 1024x768에서도
+  // 화면 밖으로 109px 나가 있었다.
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openFolder(page);
+  await page.locator('[data-day="2026-09-08"]').click();
+
+  const box = await page.evaluate(() => {
+    const rect = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+    const inView = (sel: string) => {
+      const r = rect(sel);
+      return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0;
+    };
+    return {
+      isGrid: getComputedStyle(document.getElementById('calendar')!).display === 'grid',
+      masterRight: Math.round(rect('.cal-master').right),
+      sideLeft: Math.round(rect('.cal-side').left),
+      sessionInView: inView('.session-row'),
+      openInView: inView('[data-open-day]'),
+      saveInView: inView('#btn-save-index'),
+    };
+  });
+
+  expect(box.isGrid, '달력과 상세가 좌우로 갈려야 한다').toBe(true);
+  expect(box.sideLeft, '상세가 달력 오른쪽에 있어야 한다').toBeGreaterThanOrEqual(box.masterRight);
+  expect(box.sessionInView, '운행 목록이 보여야 한다').toBe(true);
+  expect(box.openInView, '이 날짜 전체 열기가 보여야 한다').toBe(true);
+  expect(box.saveInView, '인덱스 저장이 화면 밖으로 나가면 안 된다').toBe(true);
+});
+
+test('좁은 화면에서는 세로로 쌓이고 날짜를 고른 결과가 아래에 붙는다', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openFolder(page);
+  await page.locator('[data-day="2026-09-08"]').click();
+
+  const box = await page.evaluate(() => {
+    const rect = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+    return {
+      isGrid: getComputedStyle(document.getElementById('calendar')!).display === 'grid',
+      masterBottom: Math.round(rect('.cal-master').bottom),
+      sideTop: Math.round(rect('.cal-side').top),
+      docScrollX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(box.isGrid, '좁은 화면은 한 열이다').toBe(false);
+  expect(box.sideTop, '상세는 달력 아래에 온다').toBeGreaterThanOrEqual(box.masterBottom - 1);
+  expect(box.docScrollX, '가로 스크롤이 생기면 안 된다').toBeLessThanOrEqual(1);
+  // 눌러도 화면이 그대로면 "눌린 건가?" 싶으므로 결과가 보이는 자리로 옮겨 준다
+  await expect(page.locator('.session-row').first()).toBeInViewport();
+});

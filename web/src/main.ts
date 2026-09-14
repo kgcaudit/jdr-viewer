@@ -437,6 +437,7 @@ function drawCalendar(): void {
     onPickDay: (key) => {
       fs.selectedDay = key;
       drawCalendar();
+      revealDayDetail();
     },
     onPickSession: (key, sessionIndex) => void openDay(key, sessionIndex),
     onMonthChange: (index) => {
@@ -459,6 +460,22 @@ function drawCalendar(): void {
     onSaveIndex: () => saveIndexFile(),
     onRebuildIndex: () => void rebuildIndex(),
   }, fs.stats);
+}
+
+/**
+ * 좁은 화면에서 날짜를 누르면 그 날의 운행 목록이 보이는 자리로 옮겨 준다.
+ *
+ * 좌우로 갈린 화면에서는 오른쪽이 이미 보이므로 할 일이 없다. 세로로 쌓인
+ * 화면에서는 눌러도 화면이 그대로라 "눌린 건가?" 싶은 순간이 생긴다.
+ */
+function revealDayDetail(): void {
+  const detail = document.getElementById('cal-detail');
+  if (!detail) return;
+  // 좌우로 갈렸는지는 실제 배치로 판단한다 (중단점을 두 군데 적지 않는다).
+  // 격자는 카드가 아니라 #calendar에 걸려 있다.
+  const grid = document.getElementById('calendar');
+  if (grid && getComputedStyle(grid).display === 'grid') return;
+  detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /**
