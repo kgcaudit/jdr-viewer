@@ -1478,3 +1478,56 @@ test('설명 글이 길어도 두 단추가 화면 밖으로 나가지 않는다
   expect(box.here, '현재 주행 위치가 칸 안에 있다').toBeLessThanOrEqual(box.bar + 1);
   expect(box.fit, '전체 경로 보기가 칸 안에 있다').toBeLessThanOrEqual(box.bar + 1);
 });
+
+test('큰 시계 위에 날짜가 붙는다 — 영상 속 글자를 읽지 않아도 된다', async ({ page }) => {
+  await openMorningSession(page);
+  await expect(page.locator('#time-date')).toHaveText(/^2026-09-08$/);
+  await expect(page.locator('#time-clock')).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
+});
+
+test('즐겨찾기 — 폴더가 안 열려 있으면 폴더를 열고 그 지점까지 간다', async ({ page }) => {
+  // 예전에는 "그 파일이 든 폴더를 열어 주세요"라고만 하고 끝났다. 사용자가
+  // 직접 폴더를 열고, 날짜를 찾아 들어가고, 다시 즐겨찾기를 눌러야 했다.
+  await openMorningSession(page);
+
+  // 조금 진행한 지점을 담는다
+  await page.locator('#btn-fwd10').click();
+  await page.waitForTimeout(300);
+  const marked = await page.locator('#time-clock').textContent();
+  await page.locator('#btn-bookmark').click();
+  await expect(page.locator('#bm-count')).toHaveText('1');
+
+  // 새로 연 것과 같은 상태 — 즐겨찾기는 남지만 폴더는 안 열려 있다
+  await page.reload();
+  await expect(page.locator('#bm-count')).toHaveText('1', { timeout: 30_000 });
+  await expect(page.locator('#view-main')).toBeHidden();
+
+  // 즐겨찾기를 누르면 폴더 고르기가 뜬다
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('#btn-bookmarks').click();
+  await page.locator('#bm-panel [data-goto]').first().click();
+  await (await chooser).setFiles(dir);
+
+  // 캘린더에서 멈추지 않고 그 운행·그 지점까지 간다
+  await expect(page.locator('#view-main')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#btn-bookmark')).toHaveText('★', { timeout: 30_000 });
+  expect(await page.locator('#time-clock').textContent()).toBe(marked);
+});
+
+test('즐겨찾기 — 폴더는 열려 있지만 다른 운행이면 그 운행을 연다', async ({ page }) => {
+  await openMorningSession(page);
+  await page.locator('#btn-bookmark').click();
+  await expect(page.locator('#bm-count')).toHaveText('1');
+
+  // 다른 운행으로 옮긴다
+  await page.locator('#btn-back-calendar').click();
+  await page.locator('[data-day="2026-09-09"]').click();
+  await page.locator('.session-row[data-session="0"]').click();
+  await expect(page.locator('#btn-play')).toBeEnabled({ timeout: 60_000 });
+  await expect(page.locator('#btn-bookmark')).toHaveText('☆');
+
+  await page.locator('#btn-bookmarks').click();
+  await page.locator('#bm-panel [data-goto]').first().click();
+  await expect(page.locator('#btn-bookmark')).toHaveText('★', { timeout: 30_000 });
+});
+

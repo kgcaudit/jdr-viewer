@@ -607,6 +607,17 @@ body {
 
 /* 좁은 화면에서는 단추 둘이 설명 글과 한 줄에 다 들어가지 않는다.
    줄바꿈을 허용하되 단추 둘은 서로 떨어지지 않게 묶는다. */
+/* 큰 시계 위의 날짜. 감사에서는 몇 시인지만큼 며칠인지가 중요한데,
+   지금까지는 영상에 박힌 글자를 읽어야 알 수 있었다. */
+.time-date {
+  display: block;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
 .map-bar { display: flex; align-items: center; justify-content: space-between; gap:10px; margin-top:var(--s-2); flex-wrap: wrap; }
 .map-bar p { margin:0; flex: 1 1 auto; min-width: 0; }
 .map-acts { display: flex; gap:6px; flex: 0 0 auto; margin-left: auto; }

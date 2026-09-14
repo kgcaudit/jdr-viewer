@@ -11,7 +11,7 @@ import {
 import { cacheKeyOf, fromCacheValue, ProbeCache, toCacheValue } from './core/probe-cache';
 import { createScreenWake, type WakeState } from './core/wake-lock';
 import {
-  BOOKMARK_FILE_NAME, BookmarkStore, bookmarkAt, bookmarkId, defaultLabel, repairLabels,
+  BOOKMARK_FILE_NAME, BOOKMARK_NEAR_MS, BookmarkStore, bookmarkAt, bookmarkId, defaultLabel, repairLabels,
   mergeBookmarks, parseBookmarks, serializeBookmarks, sortBookmarks, type Bookmark,
 } from './core/bookmarks';
 import { probeSegment, type SegmentInfo } from './core/segment';
@@ -101,13 +101,33 @@ const codecOverride = readCodecOverride();
 /** ?debug=1 — 끊김을 진단할 때 쓰는 재생 계수 */
 const debugMode = new URLSearchParams(location.search).get('debug') === '1';
 
+/** 마지막으로 보여 준 화면 — 별을 띄울지 정하는 데 쓴다 */
+let currentView: keyof typeof views = 'empty';
+
 function showView(name: keyof typeof views): void {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
+  currentView = name;
   $('btn-back-calendar').hidden = !(name === 'main' && folderState !== null);
-  // 즐겨찾기는 무엇이든 열려 있어야 의미가 있다
-  $('btn-bookmarks').hidden = !(name === 'main' || name === 'calendar');
+  syncStarVisibility();
   syncWakeChip(name);
 }
+
+/**
+ * 별을 언제 띄울지.
+ *
+ * 처음엔 폴더가 열려 있을 때만 띄웠다. 그런데 즐겨찾기는 **폴더를 열기 전에**
+ * 필요한 것이다 — 담아 둔 지점으로 바로 가려고 쓰는 것이기 때문이다.
+ * 첫 화면(view-empty)에서 별이 안 보이니 사용자는 폴더를 열고 날짜를 찾아 들어간 뒤에야
+ * 즐겨찾기를 누를 수 있었다. 담아 둔 것이 있으면 어디서나 띄운다.
+ */
+function syncStarVisibility(): void {
+  const useful = currentView === 'main' || currentView === 'calendar' ||
+    (currentView === 'empty' && bookmarkCount > 0);
+  $('btn-bookmarks').hidden = !useful;
+}
+
+/** showView가 bookmarks 선언보다 먼저 돌 수 있어 개수만 따로 둔다 */
+let bookmarkCount = 0;
 
 function setControlsEnabled(enabled: boolean): void {
   for (const id of CONTROL_IDS) {
@@ -461,6 +481,8 @@ async function openFolder(all: File[]): Promise<void> {
   }
   drawCalendar();
   showView('calendar');
+  // 즐겨찾기 때문에 연 폴더라면 여기서 멈추지 않고 그 지점까지 간다
+  if (await resolvePendingBookmark()) return;
 }
 
 /**
@@ -838,6 +860,7 @@ function updateLabels(absMs: number, segIndex: number): void {
   // 구간을 지정해 내보낼 때 정작 필요한 건 "지금 몇 시인가"다.
   // 파일 안 위치(0:02.8)만으로는 시작·끝을 고를 수 없다.
   $('time-clock').textContent = clockOf(absMs);
+  $('time-date').textContent = dateOf(absMs);
   // 내보내기 칸이 열려 있으면 거기 숫자도 같이 움직인다. 패널을 통째로 다시
   // 그리면 입력 칸의 포커스가 날아가므로 글자만 바꾼다.
   const nowTime = document.getElementById('rng-now-time');
@@ -1000,7 +1023,12 @@ function updateLabelsWhileDragging(pos: number, dur: number): void {
   if (s) $('time-clock').textContent = clockOf(s.player.currentBaseMs + pos);
 }
 
-/** 절대 시각의 시:분:초. 날짜는 위쪽 "기록 시각"에 이미 있다. */
+/** 큰 시계 위에 붙는 날짜 — 며칠 것인지 영상 속 글자를 읽지 않아도 되게 */
+function dateOf(absMs: number): string {
+  return Number.isFinite(absMs) ? formatRecordedTime(absMs, false).slice(0, 10) : '----------';
+}
+
+/** 절대 시각의 시:분:초. 날짜는 바로 위 dateOf가 붙인다. */
 function clockOf(absMs: number): string {
   return Number.isFinite(absMs) ? formatRecordedTime(absMs, false).slice(11, 19) : '--:--:--';
 }
@@ -1359,6 +1387,8 @@ function refreshBookmarkUi(force = false): void {
   const listChanged = lastStarState.split('|')[0] !== String(bookmarks.length);
   lastStarState = state;
 
+  bookmarkCount = bookmarks.length;
+  syncStarVisibility();
   $('bm-count').textContent = String(bookmarks.length);
   $('btn-bookmarks').classList.toggle('is-empty', bookmarks.length === 0);
 
@@ -1372,7 +1402,7 @@ function refreshBookmarkUi(force = false): void {
 
 function drawBookmarkPanel(): void {
   renderBookmarkPanel($('bm-panel'), bookmarks, bookmarkStore.persistent, {
-    onGoto: (id) => void gotoBookmark(id),
+    onGoto: (id) => gotoBookmark(id),
     onRename: (id) => {
       const b = bookmarks.find((x) => x.id === id);
       if (!b) return;
@@ -1421,33 +1451,77 @@ function toggleBookmarkHere(): void {
 }
 
 /**
- * 즐겨찾기 지점으로 간다.
- * 지금 열린 운행 밖이면 그 날짜·운행을 먼저 연다 — 캘린더로 돌아갈 필요가 없다.
+ * 즐겨찾기가 가리키는 구간을 폴더에서 찾는다.
+ *
+ * 경로가 첫째 기준이다. 다만 같은 SD카드라도 **어느 폴더를 골랐느냐**에 따라
+ * 경로가 달라진다(`data/x.jdr` vs `data/01/x.jdr`). 그래서 경로가 어긋나면
+ * **파일 이름 + 그 구간이 담고 있는 시각**으로 한 번 더 찾는다. 루프 녹화라
+ * 이름은 폴더끼리 겹치지만, 이름이 같고 시각까지 그 안에 드는 구간은 하나뿐이다.
  */
-async function gotoBookmark(id: string): Promise<void> {
+function locateBookmark(fs: FolderState, b: Bookmark): { key: string; si: number } | null {
+  const hit = (seg: SegmentInfo): boolean =>
+    seg.path === b.path ||
+    (seg.name === b.name && b.absMs >= seg.startMs && b.absMs <= seg.endMs + BOOKMARK_NEAR_MS);
+  for (const [key, day] of fs.calendar.byKey) {
+    const si = day.sessions.findIndex((ss) => ss.segments.some(hit));
+    if (si >= 0) return { key, si };
+  }
+  return null;
+}
+
+/** 폴더를 고르고 나면 이 즐겨찾기로 간다 (폴더 열기 → 즐겨찾기 이동) */
+let pendingBookmark: Bookmark | null = null;
+
+/**
+ * 즐겨찾기 지점으로 간다.
+ *
+ * 지금 열린 운행 밖이면 그 날짜·운행을 먼저 연다. 폴더 자체가 안 열려 있거나
+ * 그 파일이 없는 폴더면 **폴더 고르기를 바로 띄우고**, 다 읽고 나서 이어서
+ * 그 지점으로 간다. 예전에는 "폴더를 열어 주세요"라고만 하고 끝나서, 사용자가
+ * 직접 폴더를 열고 날짜를 찾아 들어간 뒤 다시 즐겨찾기를 눌러야 했다.
+ *
+ * 폴더 고르기는 **사용자가 누른 그 순간**에만 띄울 수 있으므로,
+ * 이 갈래에서는 await를 하나도 걸지 않는다.
+ */
+function gotoBookmark(id: string): void {
   const b = bookmarks.find((x) => x.id === id);
   if (!b) return;
   closeBookmarkPanel();
 
   const s = session;
   if (s?.lib.segments.some((x) => x.path === b.path)) {
-    await s.player.seek(b.absMs);
+    void s.player.seek(b.absMs);
     return;
   }
 
   const fs = folderState;
-  if (fs) {
-    for (const [key, day] of fs.calendar.byKey) {
-      const si = day.sessions.findIndex((ss) => ss.segments.some((x) => x.path === b.path));
-      if (si < 0) continue;
-      await openDay(key, si);
+  const at = fs ? locateBookmark(fs, b) : null;
+  if (at) {
+    void (async () => {
+      await openDay(at.key, at.si);
       await session?.player.seek(b.absMs);
-      return;
-    }
-    toast('이 즐겨찾기의 파일을 지금 열린 폴더에서 찾지 못했습니다 (폴더 선택을 확인하세요)');
+    })();
     return;
   }
-  toast(`이 즐겨찾기는 ${b.name}에 있습니다. 그 파일이 든 폴더를 열어 주세요`);
+
+  pendingBookmark = b;
+  toast(`폴더를 고르면 ${b.label} 지점으로 갑니다`);
+  folderInput.click();
+}
+
+/** 폴더를 다 읽은 뒤, 기다리던 즐겨찾기가 있으면 그 지점으로 간다. */
+async function resolvePendingBookmark(): Promise<boolean> {
+  const b = pendingBookmark;
+  pendingBookmark = null;
+  if (!b || !folderState) return false;
+  const at = locateBookmark(folderState, b);
+  if (!at) {
+    toast(`${b.name}을(를) 이 폴더에서 찾지 못했습니다 — 다른 폴더인지 확인하세요`);
+    return false;
+  }
+  await openDay(at.key, at.si);
+  await session?.player.seek(b.absMs);
+  return true;
 }
 
 function saveBookmarkFile(): void {

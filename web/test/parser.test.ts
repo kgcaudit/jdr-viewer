@@ -278,3 +278,51 @@ describe('내보내기', () => {
     expect(wav.size).toBe(44 + 5 * 1600 * 2);
   });
 });
+
+/**
+ * 주차해 둔 사이 꼬리에 덧붙은 패킷.
+ *
+ * 실기에서 72초짜리 `data/00000528.jdr`이 **9시간 30분**으로 잡혔다.
+ * 22:18:17에 시작해, 다음 날 아침 전원이 들어온 07:48:41 — 바로 다음 파일이
+ * 시작하는 그 시각 — 까지 재생 막대가 이어졌다. 인덱스는 영상·음성 기준
+ * (contentEndMs)으로 72초라고 제대로 적고 있었는데, 재생기가 쓰는
+ * durationSec만 마지막 패킷(lastTimeMs)을 보고 있었다.
+ */
+describe('재생 길이는 영상·음성이 끝나는 곳까지', () => {
+  const START = Date.UTC(2026, 8, 10, 22, 18, 17);
+  const WAKE = Date.UTC(2026, 8, 11, 7, 48, 41); // 다음 날 아침 전원
+
+  function withTailPacket(tailTag: string): SynthPacket[] {
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 30; f++) {
+      const t = START + Math.round((f * 1000) / 30);
+      packets.push({ tag: `00V${f === 0 ? 'I' : 'P'}`, payload: new Uint8Array([0, 0, 0, 1, 0x41, f]), timeMs: t, aux: f });
+    }
+    // 아침에 깨어나며 덧붙은 한 줄
+    packets.push({ tag: tailTag, timeMs: WAKE, payload: gsensorPayload(0, 0, 1) });
+    return packets;
+  }
+
+  it('꼬리에 붙은 센서 한 줄이 파일 길이를 9시간으로 늘리지 않는다', async () => {
+    const bytes = buildJdrBlock(withTailPacket('00SE'));
+    const doc = await parseJdr(new BufferByteSource(bytes, 'tail.jdr'));
+
+    expect(doc.lastTimeMs, '마지막 패킷은 아침 것이 맞다').toBe(WAKE);
+    expect(doc.contentEndMs, '영상은 1초 만에 끝난다').toBeLessThan(START + 2000);
+    // 9시간 30분(34_224초)이 아니라 1초여야 한다
+    expect(doc.durationSec).toBeLessThan(2);
+  });
+
+  it('영상·음성이 하나도 없으면 마지막 패킷을 쓴다 (길이가 0이 되면 안 된다)', async () => {
+    const fix = (second: number) => gpsPayload({
+      year: 2026, month: 9, day: 10, hour: 22, minute: 18, second,
+      latNmea: 3730.0, lonNmea: 12700.0, altitude: 30, speed: 0,
+    });
+    const packets: SynthPacket[] = [
+      { tag: '00GP', timeMs: START, payload: fix(17) },
+      { tag: '00GP', timeMs: START + 5000, payload: fix(22) },
+    ];
+    const doc = await parseJdr(new BufferByteSource(buildJdrBlock(packets), 'gps.jdr'));
+    expect(doc.durationSec).toBeCloseTo(5, 1);
+  });
+});

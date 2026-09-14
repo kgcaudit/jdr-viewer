@@ -394,6 +394,9 @@ export async function parseJdr(
     z: Int32Array.from(gsZ),
   };
 
+  // 영상·음성이 하나도 없으면(GPS만 있는 파일) 어쩔 수 없이 마지막 패킷을 쓴다
+  const playEndMs = Number.isFinite(contentEndMs) ? contentEndMs : lastTimeMs;
+
   return {
     fileName: src.name,
     fileSize: src.size,
@@ -404,7 +407,12 @@ export async function parseJdr(
     firstTimeMs: Number.isFinite(firstTimeMs) ? firstTimeMs : NaN,
     lastTimeMs: Number.isFinite(lastTimeMs) ? lastTimeMs : NaN,
     contentEndMs: Number.isFinite(contentEndMs) ? contentEndMs : NaN,
-    durationSec: Number.isFinite(firstTimeMs) && Number.isFinite(lastTimeMs) ? (lastTimeMs - firstTimeMs) / 1000 : 0,
+    // 재생 길이는 **영상·음성이 끝나는 곳**까지다. lastTimeMs를 쓰면 주차해 둔
+    // 사이 꼬리에 덧붙은 패킷 한 줄이 파일 길이를 통째로 늘린다 — 실기에서
+    // 72초짜리 00000528.jdr이 9시간 30분으로 잡혔다(22:18:17에 시작해 다음 날
+    // 아침 07:48:41, 바로 다음 파일이 시작하는 그 시각까지). 구간 시각은
+    // contentEndMs로 이미 바로잡아 두었는데 재생기만 몰랐다.
+    durationSec: Number.isFinite(firstTimeMs) && Number.isFinite(playEndMs) ? (playEndMs - firstTimeMs) / 1000 : 0,
     indexMismatches: blocks.reduce((s, b) => s + b.indexMismatches, 0),
     video,
     audio: {
