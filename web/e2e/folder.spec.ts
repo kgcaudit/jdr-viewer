@@ -1206,6 +1206,12 @@ test('영상을 접으면 스크롤이 짧아지고, 벽시계·띠·재생은 �
   await page.setViewportSize({ width: 412, height: 620 });
   await openMorningSession(page);
   await page.locator('[data-tab="sensor"]').click();
+  // 차트는 스캔이 끝난 뒤에 그려진다. 그 전에 재면 센서 패널이 103px짜리
+  // 빈 자리라, 접은 뒤(차트가 그려진 598px)와 견주면 **접었더니 길어진
+  // 것처럼** 보인다. 재는 동안 패널이 변하지 않도록 다 그려질 때까지 기다린다.
+  await page.waitForFunction(
+    () => (document.getElementById('chart-speed')?.getBoundingClientRect().height ?? 0) > 100,
+    undefined, { timeout: 15_000 });
 
   const probe = () => page.evaluate(() => {
     const inView = (el: Element | null): boolean => {
@@ -1303,5 +1309,34 @@ test('영상 전환 딱지의 글자가 보인다 — 빈 알약이 아니다', 
   const wide = await page.evaluate(() =>
     document.querySelector('.chip-swap-mark')!.getBoundingClientRect().width);
   expect(wide, '넓은 화면에는 전환 표식이 없다').toBe(0);
+});
+
+
+/**
+ * 한국(UTC+9) 기기에서 담은 즐겨찾기.
+ *
+ * 실기에서 23:35:58로 담은 것의 **큰 글자가 다음 날 08:35:58**로 찍혔다.
+ * 이름만 로컬 게터로 만들어 보는 사람의 시간대만큼 밀린 것이다.
+ * UTC 기기에서는 이 어긋남이 보이지 않으므로 시간대를 한국으로 두고 본다.
+ */
+test.describe('한국 시간대', () => {
+  test.use({ timezoneId: 'Asia/Seoul' });
+
+  test('즐겨찾기 이름과 바로 아래 시각이 어긋나지 않는다', async ({ page }) => {
+    await openMorningSession(page);
+    await page.locator('#btn-bookmark').click();
+    await expect(page.locator('#bm-count')).toHaveText('1');
+    await page.locator('#btn-bookmarks').click();
+
+    const label = (await page.locator('#bm-panel .bm-label').first().textContent())?.trim() ?? '';
+    const meta = (await page.locator('#bm-panel .bm-meta').first().textContent())?.trim() ?? '';
+
+    // 아래 줄은 `2026-09-08 08:09:19 · 00000460.jdr` 꼴이다
+    const when = meta.split('·')[0].trim();
+    expect(when, '아래 줄은 기록된 벽시계 시각이다').toMatch(/^2026-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    // 큰 글자는 그 앞 연도만 뗀 것이어야 한다. 둘이 어긋나면 어느 쪽을
+    // 믿어야 할지 알 수 없어 감사 기록으로 못 쓴다.
+    expect(label, '큰 글자와 아래 줄이 같은 시각을 가리킨다').toBe(when.slice(5));
+  });
 });
 

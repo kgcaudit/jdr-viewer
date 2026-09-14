@@ -11,7 +11,7 @@ import {
 import { cacheKeyOf, fromCacheValue, ProbeCache, toCacheValue } from './core/probe-cache';
 import { createScreenWake, type WakeState } from './core/wake-lock';
 import {
-  BOOKMARK_FILE_NAME, BookmarkStore, bookmarkAt, bookmarkId, defaultLabel,
+  BOOKMARK_FILE_NAME, BookmarkStore, bookmarkAt, bookmarkId, defaultLabel, repairLabels,
   mergeBookmarks, parseBookmarks, serializeBookmarks, sortBookmarks, type Bookmark,
 } from './core/bookmarks';
 import { probeSegment, type SegmentInfo } from './core/segment';
@@ -1312,7 +1312,11 @@ const bookmarkStore = new BookmarkStore();
 let bookmarks: Bookmark[] = [];
 
 void bookmarkStore.all().then((list) => {
-  bookmarks = list;
+  // 이름은 값으로 저장되므로, 시간대만큼 밀려 담긴 옛 이름은 함수를 고쳐도
+  // 저절로 낫지 않는다. 열 때 한 번 바로잡고 그대로 다시 써 둔다.
+  const fixed = repairLabels(list);
+  bookmarks = fixed.list;
+  if (fixed.repaired > 0) void bookmarkStore.put(fixed.list);
   refreshBookmarkUi(true);
 });
 

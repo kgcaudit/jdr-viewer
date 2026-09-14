@@ -44,11 +44,50 @@ export function bookmarkId(path: string, relMs: number): string {
   return `${path}@${Math.round(relMs / 1000)}`;
 }
 
-/** 기본 이름 — 사용자가 따로 적지 않으면 이게 남는다 */
+const p2 = (n: number): string => String(n).padStart(2, '0');
+
+/**
+ * 기본 이름 — 사용자가 따로 적지 않으면 이게 남는다.
+ *
+ * **반드시 UTC 게터를 쓴다.** absMs는 기기가 적은 벽시계 시각을 Date.UTC로
+ * 옮겨 담은 값이라(6장 참조) 로컬 게터로 읽으면 보는 사람의 시간대만큼
+ * 밀린다. 실제로 여기만 로컬 게터를 쓰고 있어서, 한국(UTC+9)에서 담은
+ * 즐겨찾기의 큰 글자가 아래 줄보다 **9시간 앞서** 찍혔다
+ * (23:35:58로 담은 것이 다음 날 08:35:58로).
+ */
 export function defaultLabel(absMs: number): string {
   const d = new Date(absMs);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return `${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())} ` +
+    `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
+}
+
+/** 시간대만큼 밀려 저장돼 버린 옛 기본 이름. 고칠 대상을 가려내는 데만 쓴다. */
+export function legacyLocalLabel(absMs: number): string {
+  const d = new Date(absMs);
+  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ` +
+    `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+/**
+ * 이미 저장된 즐겨찾기의 잘못된 기본 이름을 바로잡는다.
+ *
+ * 이름은 값으로 저장되므로 함수만 고쳐서는 **이미 담긴 것이 안 고쳐진다.**
+ * 다만 사람이 직접 붙인 이름을 건드리면 안 되므로, 이름이 그 항목의
+ * **옛 기본 이름과 글자까지 똑같을 때만** 바꾼다. 직접 지은 이름은
+ * 우연히 여기 걸릴 수 없다.
+ *
+ * 담은 기기와 같은 시간대에서 열 때 고쳐진다. 다른 시간대 기기로 옮겨
+ * 연 경우에는 옛 이름을 알아볼 수 없어 그대로 두고, 이름 바꾸기로 고친다.
+ */
+export function repairLabels(list: Bookmark[]): { list: Bookmark[]; repaired: number } {
+  let repaired = 0;
+  const out = list.map((b) => {
+    const right = defaultLabel(b.absMs);
+    if (b.label === right || b.label !== legacyLocalLabel(b.absMs)) return b;
+    repaired++;
+    return { ...b, label: right };
+  });
+  return { list: out, repaired };
 }
 
 /** 시각 순으로 세운다 (목록·파일 모두 이 순서) */
@@ -122,7 +161,7 @@ export function parseBookmarks(text: string): Bookmark[] {
       createdAt: Number(m.createdAt) || Date.now(),
     });
   }
-  return sortBookmarks(out);
+  return sortBookmarks(repairLabels(out).list);
 }
 
 /** 불러온 것과 이미 있는 것을 합친다. 같은 지점은 **원래 이름을 지킨다.** */

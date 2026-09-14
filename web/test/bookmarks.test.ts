@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  BookmarkFileError, bookmarkAt, bookmarkId, defaultLabel, mergeBookmarks,
-  parseBookmarks, serializeBookmarks, sortBookmarks, type Bookmark,
+  BookmarkFileError, bookmarkAt, bookmarkId, defaultLabel, legacyLocalLabel,
+  mergeBookmarks, parseBookmarks, repairLabels, serializeBookmarks, sortBookmarks,
+  type Bookmark,
 } from '../src/core/bookmarks';
+import { formatRecordedTime } from '../src/core/time';
 
 const T = (h: number, m: number, s = 0) => new Date(2026, 8, 8, h, m, s).getTime();
 
@@ -118,5 +120,61 @@ describe('정렬', () => {
     const sorted = sortBookmarks(src);
     expect(src[0].path).toBe('data/b.jdr');
     expect(sorted[0].path).toBe('data/a.jdr');
+  });
+});
+
+/**
+ * 즐겨찾기 이름의 시간대.
+ *
+ * 실기(한국, UTC+9)에서 23:35:58로 담은 즐겨찾기의 **큰 글자가 다음 날
+ * 08:35:58**로 찍혔다. 아래 줄(파일·시각)은 맞는데 이름만 9시간 앞섰다.
+ * absMs는 기기가 적은 벽시계를 Date.UTC로 옮겨 담은 값인데, 이름을 만들 때만
+ * 로컬 게터를 써서 보는 사람의 시간대만큼 밀린 것이다.
+ *
+ * 그래서 시간대를 한국으로 두고 시험한다 — UTC에서는 이 버그가 보이지 않는다.
+ */
+describe('즐겨찾기 이름의 시간대', () => {
+  const TZ = process.env.TZ;
+  beforeAll(() => { process.env.TZ = 'Asia/Seoul'; });
+  afterAll(() => { process.env.TZ = TZ; });
+
+  // 2026-09-12 23:35:58 (기록된 벽시계 그대로)
+  const absMs = Date.UTC(2026, 8, 12, 23, 35, 58);
+
+  it('이름이 기록된 시각 그대로다 — 보는 사람 시간대에 밀리지 않는다', () => {
+    expect(defaultLabel(absMs)).toBe('09-12 23:35:58');
+  });
+
+  it('큰 글자와 아래 줄이 같은 시각을 가리킨다', () => {
+    // 화면에서 이름 바로 아래에 formatRecordedTime이 찍힌다. 둘이 어긋나면
+    // 어느 쪽을 믿어야 할지 알 수 없다 — 감사 기록으로 못 쓴다.
+    expect(formatRecordedTime(absMs, false)).toBe('2026-09-12 23:35:58');
+    expect(defaultLabel(absMs)).toBe(formatRecordedTime(absMs, false).slice(5));
+  });
+
+  it('시간대만큼 밀려 담긴 옛 이름을 열 때 바로잡는다', () => {
+    const old = legacyLocalLabel(absMs);
+    expect(old, '한국이면 다음 날 08:35:58로 밀려 있었다').toBe('09-13 08:35:58');
+
+    const got = repairLabels([mark('data/00000086.jdr', 1000, absMs, old)]);
+    expect(got.repaired).toBe(1);
+    expect(got.list[0].label).toBe('09-12 23:35:58');
+  });
+
+  it('사람이 붙인 이름은 건드리지 않는다', () => {
+    const got = repairLabels([mark('data/00000086.jdr', 1000, absMs, '접촉 지점')]);
+    expect(got.repaired).toBe(0);
+    expect(got.list[0].label).toBe('접촉 지점');
+  });
+
+  it('이미 맞는 이름은 그대로 둔다 (두 번 고치지 않는다)', () => {
+    const once = repairLabels([mark('data/a.jdr', 0, absMs, defaultLabel(absMs))]);
+    expect(once.repaired).toBe(0);
+    expect(repairLabels(once.list).repaired).toBe(0);
+  });
+
+  it('파일에서 불러올 때도 바로잡는다', () => {
+    const text = serializeBookmarks([mark('data/00000086.jdr', 1000, absMs, legacyLocalLabel(absMs))]);
+    expect(parseBookmarks(text)[0].label).toBe('09-12 23:35:58');
   });
 });
