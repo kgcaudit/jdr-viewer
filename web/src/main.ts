@@ -172,6 +172,45 @@ $('video-grid').addEventListener('click', (e) => {
   grid.classList.toggle('is-swapped');
 });
 
+/**
+ * 영상 접기.
+ *
+ * 세로가 짧은 기기에서 패널에 남는 높이가 97px(화면의 18%)까지 눌렸다.
+ * 접으면 영상만 숨고 벽시계·재생·띠는 남으므로, **앱 셸로 얻은 맥락을
+ * 잃지 않으면서** 표와 목록에 자리를 내준다.
+ *
+ * 상태는 기억한다 — 감사하듯 오래 보는 사람은 한 번 정한 모양을 계속 쓴다.
+ */
+const FOLD_KEY = 'jdr-viewer.stage-folded';
+
+function applyStageFold(folded: boolean): void {
+  document.body.classList.toggle('is-stage-folded', folded);
+  const btn = $('btn-fold-stage');
+  btn.textContent = folded ? '⌃' : '⌄';
+  btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
+  const label = folded ? '영상 펴기' : '영상 접기';
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('title', label);
+}
+
+function readStageFold(): boolean {
+  try {
+    return localStorage.getItem(FOLD_KEY) === '1';
+  } catch {
+    // 시크릿 모드나 file:// 에서는 못 읽을 수 있다. 그때는 펼친 채로 둔다.
+    return false;
+  }
+}
+
+applyStageFold(readStageFold());
+$('btn-fold-stage').addEventListener('click', () => {
+  const next = !document.body.classList.contains('is-stage-folded');
+  applyStageFold(next);
+  try {
+    localStorage.setItem(FOLD_KEY, next ? '1' : '0');
+  } catch { /* 저장 못 해도 이번 세션에는 적용된다 */ }
+});
+
 const dropzone = $('dropzone');
 for (const type of ['dragenter', 'dragover']) {
   dropzone.addEventListener(type, (e) => { e.preventDefault(); dropzone.classList.add('is-over'); });

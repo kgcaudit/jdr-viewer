@@ -120,6 +120,12 @@
               <span id="time-label" class="time-rel">0:00 / 0:00</span>
             </span>
             <input id="seek" class="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="현재 영상 파일 안에서의 재생 위치" />
+            <!-- 영상을 접어 아래 표·목록에 공간을 준다. 세로가 짧은 기기에서
+                 패널이 97px(화면의 18%)까지 눌리던 것을 푸는 손잡이다.
+                 이미 높이가 있는 이 줄에 두어 **세로를 더 쓰지 않는다.** -->
+            <button id="btn-fold-stage" class="btn btn-icon" type="button"
+              aria-expanded="true" aria-controls="video-grid"
+              aria-label="영상 접기" title="영상 접기">⌄</button>
           </div>
         </div>
         <div class="note-row">

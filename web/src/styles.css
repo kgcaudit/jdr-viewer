@@ -896,3 +896,23 @@ body {
   .tabs { overflow-x: hidden; }
   .tab { flex: 1 1 0; min-width: 0; padding: var(--s-3) 2px; font-size: 11px; }
 }
+
+/* ── 영상 접기 ───────────────────────────────────────────────
+ *
+ * 세로가 짧은 기기에서 패널에 남는 높이가 97px(화면의 18%)까지 눌렸다.
+ * 다섯 줄도 안 들어가는데, 그게 "탭바가 살아 있으면 된다"는 낮은 기준으로
+ * 통과하고 있었다.
+ *
+ * 접으면 영상만 숨고 **벽시계·재생·띠는 남는다.** 앱 셸로 얻은 것
+ * (구간을 고르는 내내 지금 몇 시 어디를 보는지가 눈앞에 있는 것)을
+ * 그대로 지키면서 표와 목록에 자리를 내준다.
+ */
+.is-stage-folded .video-grid { display: none; }
+.is-stage-folded .cell-note { display: none; }
+#btn-fold-stage {
+  flex: 0 0 auto;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+}
+.is-stage-folded #btn-fold-stage { color: var(--accent); }

@@ -1142,3 +1142,52 @@ test('영상 배치는 화면 폭이 아니라 무대 폭으로 정한다', asyn
   });
   expect(wideStage.pip, '무대가 넓으면 전방·후방을 나란히 놓는다').toBe(false);
 });
+
+test('영상을 접으면 표 볼 공간이 세 배가 되고, 벽시계·띠·재생은 남는다', async ({ page }) => {
+  // 세로가 짧은 기기에서 패널에 남는 높이가 97px(화면의 18%)까지 눌렸다.
+  // 다섯 줄도 안 들어가는데 "탭바가 살아 있으면 된다"는 낮은 기준으로
+  // 통과하고 있었다. 접으면 영상만 숨고 맥락은 그대로 남아야 한다.
+  await page.setViewportSize({ width: 412, height: 620 });
+  await openMorningSession(page);
+  await page.locator('[data-tab="sensor"]').click();
+
+  const probe = () => ({
+    panelH: Math.round((document.querySelector('.tab-panels') as HTMLElement).clientHeight),
+    videoShown: (document.querySelector('#video-grid') as HTMLElement).offsetParent !== null,
+    clock: (() => { const r = document.getElementById('time-clock')!.getBoundingClientRect(); return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0; })(),
+    strip: (() => { const r = document.querySelector('.strip-track')!.getBoundingClientRect(); return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0; })(),
+    play: (() => { const r = document.getElementById('btn-play')!.getBoundingClientRect(); return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0; })(),
+  });
+
+  const before = await page.evaluate(probe);
+  expect(before.videoShown).toBe(true);
+
+  await page.locator('#btn-fold-stage').click();
+  const after = await page.evaluate(probe);
+
+  expect(after.videoShown, '영상은 숨는다').toBe(false);
+  expect(after.panelH, '표 볼 공간이 크게 늘어야 한다').toBeGreaterThan(before.panelH * 2.5);
+  // 앱 셸로 얻은 것을 잃지 않는다
+  expect(after.clock, '접어도 벽시계는 남는다').toBe(true);
+  expect(after.strip, '접어도 구간 띠는 남는다').toBe(true);
+  expect(after.play, '접어도 재생 버튼은 남는다').toBe(true);
+
+  // 다시 누르면 돌아온다
+  await page.locator('#btn-fold-stage').click();
+  expect((await page.evaluate(probe)).videoShown).toBe(true);
+});
+
+test('접은 상태를 기억한다', async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 760 });
+  await openMorningSession(page);
+  await page.locator('#btn-fold-stage').click();
+  await expect(page.locator('body')).toHaveClass(/is-stage-folded/);
+
+  // 다시 열어도 접힌 채로 시작한다 — 한 번 정한 모양을 계속 쓴다
+  await openMorningSession(page);
+  await expect(page.locator('body')).toHaveClass(/is-stage-folded/);
+  await expect(page.locator('#btn-fold-stage')).toHaveAttribute('aria-expanded', 'false');
+
+  await page.locator('#btn-fold-stage').click();
+  await expect(page.locator('body')).not.toHaveClass(/is-stage-folded/);
+});
