@@ -748,6 +748,29 @@ test('즐겨찾기를 지울 수 있다', async ({ page }) => {
   await expect(page.locator('#btn-bookmark')).toHaveText('☆');
 });
 
+test('재생 위치의 벽시계 시각이 탐색 막대와 내보내기 칸 양쪽에 있다', async ({ page }) => {
+  // 구간을 지정해 내보낼 때 필요한 건 "지금 몇 시인가"다. 파일 안 위치
+  // (0:02.8)만으로는 시작·끝을 고를 수 없고, 내보내기 칸까지 내려오면
+  // 위쪽 재생 막대는 화면 밖이라 보이지 않는다.
+  await openMorningSession(page);
+  const clock = page.locator('#time-clock');
+  await expect(clock).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
+  const atStart = await clock.textContent();
+
+  await page.locator('[data-tab="export"]').click();
+  await expect(page.locator('#rng-now-time')).toHaveText(atStart!);
+
+  // 자리를 옮기면 양쪽이 같이 움직인다
+  await page.locator('#btn-fwd10').click();
+  await expect(clock).not.toHaveText(atStart!);
+  await expect(page.locator('#rng-now-time')).toHaveText(await clock.textContent() ?? '');
+
+  // [지금]을 누르면 그 시각이 시작 칸에 들어간다
+  await page.locator('[data-now="from"]').click();
+  const from = await page.locator('#rng-from').inputValue();
+  expect(from).toBe(await clock.textContent());
+});
+
 test('시간 구간을 지정해 여러 파일을 하나로 내보낸다', async ({ page }, testInfo) => {
   await openMorningSession(page);
   await page.locator('.tab[data-tab="export"]').click();

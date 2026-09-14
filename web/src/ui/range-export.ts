@@ -29,6 +29,8 @@ export interface RangeExportHandlers {
 export interface RangeExportState {
   range: TimeRange;
   segments: SegmentInfo[];
+  /** 지금 재생 중인 절대 시각 — [지금]을 누르면 들어갈 값 */
+  nowMs: number;
   /** 지금 만들고 있는 것 */
   busy: RangeKind | null;
   progress: number;
@@ -68,8 +70,19 @@ export function renderRangeExport(
     </div>`;
   }).join('');
 
+  // 여기까지 내려오면 위쪽 재생 막대가 화면 밖이다. [지금]을 누르면 무슨
+  // 값이 들어가는지 **누르기 전에** 보여야 고를 수 있다.
+  const nowRow = Number.isFinite(state.nowMs)
+    ? `<div class="rng-now">
+        <span class="rng-now-label">현재 재생 위치</span>
+        <span class="rng-now-time" id="rng-now-time">${escapeHtml(hhmmss(state.nowMs))}</span>
+        <span class="rng-now-src"><span id="rng-now-date">${escapeHtml(formatRecordedTime(state.nowMs, false).slice(0, 10))}</span> · [지금]을 누르면 이 값이 들어갑니다</span>
+      </div>`
+    : '';
+
   el.innerHTML = `
     <p class="section-title">구간 지정</p>
+    ${nowRow}
     <div class="rng-grid">
       <label class="rng-row">
         <span class="rng-tag">시작</span>

@@ -728,6 +728,18 @@ function updateLabels(absMs: number, segIndex: number): void {
   const fileDur = s.player.fileDuration;
   if (!seekDragging) $<HTMLInputElement>('seek').value = String(Math.round(filePos));
   $('time-label').textContent = `${formatDuration(filePos / 1000)} / ${formatDuration(fileDur / 1000)}`;
+  // 구간을 지정해 내보낼 때 정작 필요한 건 "지금 몇 시인가"다.
+  // 파일 안 위치(0:02.8)만으로는 시작·끝을 고를 수 없다.
+  $('time-clock').textContent = clockOf(absMs);
+  // 내보내기 칸이 열려 있으면 거기 숫자도 같이 움직인다. 패널을 통째로 다시
+  // 그리면 입력 칸의 포커스가 날아가므로 글자만 바꾼다.
+  const nowTime = document.getElementById('rng-now-time');
+  if (nowTime) {
+    nowTime.textContent = clockOf(absMs);
+    const nowDate = document.getElementById('rng-now-date');
+    const date = formatRecordedTime(absMs, false).slice(0, 10);
+    if (nowDate && nowDate.textContent !== date) nowDate.textContent = date;
+  }
   $('file-note').textContent = seg
     ? `구간 ${segIndex + 1}/${s.lib.segments.length} · 출처 ${seg.path}`
     : '';
@@ -874,6 +886,14 @@ seekEl.addEventListener('input', () => {
 });
 function updateLabelsWhileDragging(pos: number, dur: number): void {
   $('time-label').textContent = `${formatDuration(pos / 1000)} / ${formatDuration(dur / 1000)}`;
+  // 끌면서 벽시계가 같이 움직여야 원하는 시각을 찾을 수 있다
+  const s = session;
+  if (s) $('time-clock').textContent = clockOf(s.player.currentBaseMs + pos);
+}
+
+/** 절대 시각의 시:분:초. 날짜는 위쪽 "기록 시각"에 이미 있다. */
+function clockOf(absMs: number): string {
+  return Number.isFinite(absMs) ? formatRecordedTime(absMs, false).slice(11, 19) : '--:--:--';
 }
 const commitSeek = (): void => {
   if (!seekDragging || !session) return;
@@ -983,6 +1003,7 @@ function drawRangeExport(): void {
   renderRangeExport(el, {
     range: exportRange,
     segments: s.lib.segments,
+    nowMs: s.player.position,
     busy: rangeBusy,
     progress: rangeProgress,
     progressNote: rangeNote,

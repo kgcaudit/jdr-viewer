@@ -102,7 +102,10 @@
           <button id="btn-fwd10" class="btn btn-skip" type="button" aria-label="10초 앞으로" title="10초 앞으로">10<span class="skip-arc">⟳</span></button>
           <button id="btn-next-file" class="btn btn-icon" type="button" aria-label="다음 영상 파일" title="다음 영상 파일">⏭</button>
           <input id="seek" class="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="현재 영상 파일 안에서의 재생 위치" />
-          <span id="time-label" class="time">0:00 / 0:00</span>
+          <span class="time">
+            <strong id="time-clock" class="time-clock">--:--:--</strong>
+            <span id="time-label" class="time-rel">0:00 / 0:00</span>
+          </span>
           <select id="speed" class="select" aria-label="재생 속도">
             <option value="0.5">0.5x</option>
             <option value="1" selected>1x</option>

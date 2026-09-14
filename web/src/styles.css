@@ -566,3 +566,40 @@ body {
 .gap-kind-n { font-variant-numeric: tabular-nums; color: var(--text-2); }
 .gap-kind-d { font-variant-numeric: tabular-nums; font-weight: 600; }
 .gap-kind-l { line-height: 1.45; }
+
+/* 재생 위치의 벽시계 시각.
+   구간을 지정해 내보낼 때 정작 필요한 건 "지금 몇 시인가"다. 파일 안 위치
+   (0:02.8)만으로는 시작·끝을 고를 수 없어, 눈에 먼저 들어오게 둔다. */
+.time-clock {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.time-rel {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* 내보내기 칸에서도 현재 재생 위치가 보여야 한다 — 위로 스크롤하지 않게 */
+.rng-now {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.rng-now-label { font-size: 12px; color: var(--text-2); }
+.rng-now-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  font-weight: 600;
+}
+.rng-now-src { font-size: 12px; color: var(--text-2); }
