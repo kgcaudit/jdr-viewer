@@ -409,6 +409,38 @@ describe('헤더 시각과 실제 패킷이 어긋날 때', () => {
     expect(seg.durationMs).toBe(lastPacketMs - T0);
   });
 
+  it('헤더 종료가 한참 늦어도 마지막 패킷을 쓴다 — 주차 시간이 녹화로 덮이면 안 된다', async () => {
+    // 실기기: 10:25:54에 시작해 49초 찍고 끝난 파일의 헤더 종료 시각이
+    // 16:01(다음 시동)로 적혀 있어 한 구간이 5시간 35분짜리가 되었다.
+    const src = build(T0, T0 + 5 * 3600_000 + 35 * 60_000);
+    const seg = await probeSegment({ src, name: 'x.jdr', path: 'data/x.jdr', size: src.size });
+
+    expect(seg.endMs).toBe(lastPacketMs);
+    expect(seg.durationMs).toBeLessThan(3000);
+    expect(seg.timeSource).toBe('packets');
+  });
+
+  it('그 덮임 때문에 사라졌던 주차 빈 구간이 되살아난다', async () => {
+    // 주행 파일 하나 + 다섯 시간 뒤 파일 하나. 앞 파일의 헤더 종료 시각이
+    // 뒤 파일 시작까지 늘어나 있으면 둘이 붙어 보인다.
+    const PARK_MS = 5 * 3600_000 + 35 * 60_000;
+    const a = build(T0, T0 + PARK_MS);
+    const segA = await probeSegment({ src: a, name: 'a.jdr', path: 'data/a.jdr', size: a.size });
+
+    const T1 = T0 + PARK_MS;
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 60; f++) {
+      packets.push({ tag: f % 30 === 0 ? '00VI' : '00VP', payload: new Uint8Array(100), timeMs: T1 + Math.round((f * 1000) / 30), aux: f });
+    }
+    const b = new BufferByteSource(buildJdrBlock(packets, 0), 'b.jdr');
+    const segB = await probeSegment({ src: b, name: 'b.jdr', path: 'data/b.jdr', size: b.size });
+
+    const lib = buildLibrary([segA, segB]);
+    expect(lib.gaps, '다섯 시간 주차가 빈 구간으로 보여야 한다').toHaveLength(1);
+    expect(lib.gaps[0].durationMs).toBeGreaterThan(5 * 3600_000);
+    expect(lib.coveredMs).toBeLessThan(10_000);
+  });
+
   it('헤더를 그대로 믿었다면 생겼을 빈 구간이 사라진다', async () => {
     // 파일 두 개가 실제로는 붙어 있는데 헤더 시작만 7초씩 늦게 적힌 경우
     const a = build(T0 + 7_000, lastPacketMs);

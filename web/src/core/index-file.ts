@@ -19,10 +19,11 @@ export const INDEX_FILE_NAME = 'jdr-index.json';
 export const INDEX_FORMAT = 'jdr-viewer-index';
 /**
  * 4: 블록 체인이 끊겨도 앞으로 훑어 따라잡는다 — 파일 뒷부분을 통째로 놓쳐
- *    없는 빈 구간이 생기던 것을 고쳤다. v3 이하의 blockOffsets는 잘려 있을 수
- *    있으므로 다시 읽는다.
+ *    없는 빈 구간이 생기던 것을 고쳤다.
+ * 5: 종료 시각도 마지막 패킷 기준 — 헤더에 다음 시동 시각이 적혀 주차 몇
+ *    시간이 "녹화됨"으로 덮이던 것을 고쳤다. 옛 값에는 그 길이가 굳어 있다.
  */
-export const INDEX_VERSION = 4;
+export const INDEX_VERSION = 5;
 
 /** 행을 배열로 저장한다 — 키 이름이 828번 반복되면 파일이 3배가 된다 */
 const FIELDS = [

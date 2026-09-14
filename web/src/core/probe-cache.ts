@@ -11,8 +11,9 @@ import type { SegmentInfo, TimeSource } from './segment';
 
 const DB_NAME = 'jdr-viewer';
 /** 3: 시작 시각 계산이 바뀌어 예전 캐시는 버린다 */
-// 4: 블록 체인 되찾기 — 예전 값은 파일 뒷부분을 놓친 채 굳어 있으므로 버린다
-const DB_VERSION = 4;
+// 4: 블록 체인 되찾기 / 5: 종료 시각을 패킷 기준으로
+// 예전 값에는 잘린 길이와 부풀려진 길이가 굳어 있으므로 통째로 버린다
+const DB_VERSION = 5;
 const STORE = 'probes';
 
 /** 캐시에 담는 값 — 경로/폴더처럼 열 때마다 달라지는 건 넣지 않는다 */

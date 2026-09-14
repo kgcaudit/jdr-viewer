@@ -65,6 +65,12 @@ const MAX_BLOCKS = 8192;
 const RESUME_STEPS = [4 << 10, 64 << 10, 256 << 10];
 /** 넓혀 훑기를 파일당 몇 번까지 허용할지 */
 const RESUME_WIDE_BUDGET = 4;
+/**
+ * 헤더 종료 시각을 믿을지 가르는 최저 프레임률.
+ * 주차 저속 녹화까지 감안해 아주 느슨하게 잡는다 — 이걸 넘어서면
+ * 녹화 길이가 아니라 다른 무엇이 적힌 것이다.
+ */
+const MIN_FPS = 1;
 /** 헤더가 0번지에 없을 때 훑어볼 범위. 이보다 뒤면 이 파일은 건너뛴다. */
 const SCAN_LIMIT = 4 << 20;
 const MAGIC = [0x31, 0x42, 0x45, 0x4a];
@@ -184,15 +190,18 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     startMs = fromPackets.startMs;
     if (headerShiftMs !== 0) timeSource = 'packets';
   }
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
-    if (Number.isFinite(fromPackets.startMs)) {
-      startMs = fromPackets.startMs;
-      endMs = fromPackets.endMs;
-      timeSource = 'packets';
-    }
-  } else if (Number.isFinite(fromPackets.endMs) && fromPackets.endMs > endMs) {
+  // 종료도 **마지막 패킷이 기준**이다. 시작과 같은 원칙이며, 여기서 한쪽만
+  // 봐주면 안 된다. 예전에는 헤더보다 **늦을 때만** 패킷을 썼는데, 헤더의
+  // 종료 시각(+0xA4)에는 기기가 그 파일을 마지막으로 손댄 시각이 적히는
+  // 일이 있다. 주차로 다섯 시간 세워 둔 뒤 시동을 걸면 마지막 주행 파일
+  // 하나가 **5시간 35분짜리**가 되고, 그러면 주차 시간이 녹화된 것처럼
+  // 덮여 빈 구간이 통째로 사라진다. 기록에 없는 시간을 있다고 하는 셈이라
+  // 감사 자료로서 가장 나쁜 종류의 오류다.
+  if (Number.isFinite(fromPackets.endMs) && fromPackets.endMs >= startMs) {
+    if (endMs !== fromPackets.endMs) timeSource = 'packets';
     endMs = fromPackets.endMs;
-    timeSource = 'packets';
+  } else if (!Number.isFinite(endMs) || endMs < startMs) {
+    endMs = NaN;
   }
   if (!Number.isFinite(startMs)) {
     const fromName = timeFromFileName(name);
@@ -207,10 +216,15 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
   }
 
   // 종료 시각을 못 구했으면 프레임 수로 추정한다 (30fps 가정)
+  const frames = Math.max(base.ch0Count, base.ch1Count);
   let endEstimated = false;
   if (!Number.isFinite(endMs) || endMs <= startMs) {
-    const frames = Math.max(base.ch0Count, base.ch1Count);
     endMs = startMs + (frames > 1 ? ((frames - 1) / 30) * 1000 : 0);
+    endEstimated = true;
+  } else if (timeSource === 'header' && frames > 1 && endMs - startMs > (frames / MIN_FPS) * 1000) {
+    // 패킷을 못 읽어 헤더 값을 쓰는 경우다. 담긴 프레임 수가 도저히 받쳐
+    // 주지 못하는 길이라면 그건 녹화 길이가 아니라 파일을 닫은 시각이다.
+    endMs = startMs + ((frames - 1) / 30) * 1000;
     endEstimated = true;
   }
 
