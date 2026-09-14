@@ -84,6 +84,9 @@
     <!-- 본 화면 -->
     <main id="view-main" class="view app" hidden>
       <section class="stage">
+        <!-- 영상 배치를 무대 폭으로 정하기 위한 기준점. 무대가 아니라 여기에
+             두어야 좁은 화면에서 무대를 display:contents 로 풀 수 있다. -->
+        <div class="video-band">
         <div id="video-grid" class="video-grid">
           <figure class="video-cell" data-channel="0">
             <canvas id="canvas-0" width="1280" height="720"></canvas>
@@ -104,7 +107,14 @@
             </figcaption>
           </figure>
         </div>
+        </div><!-- /video-band -->
 
+        <!-- 도크가 위에 붙었는지 알아내는 표식. 높이 0이라 자리를 안 먹고,
+             이게 화면 위로 빠져나가면 곧 도크가 붙은 것이다. -->
+        <div id="dock-sentinel" aria-hidden="true"></div>
+        <!-- 좁은 화면에서는 페이지가 통째로 스크롤되고, 이 묶음만 위에 붙는다.
+             영상은 올라가 사라져도 **지금 몇 시 어디를 보는지**는 남는다. -->
+        <div id="stage-dock" class="stage-dock">
         <!-- 두 줄로 못박는다. 한 줄에 열 개를 늘어놓으면 좁은 화면에서
              제멋대로 세 줄로 쪼개져 세로를 213px씩 먹는다. -->
         <div class="controls">
@@ -152,6 +162,7 @@
             <span id="strip-end"></span>
           </div>
         </div>
+        </div><!-- /stage-dock -->
         <p id="recorded-time" class="recorded-time"></p>
       </section>
 

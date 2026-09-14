@@ -210,12 +210,14 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  /* 영상 배치를 **화면 폭이 아니라 이 열의 폭**으로 정하기 위한 기준점.
-     984px 폴드를 세로로 들면 화면은 넓지만 무대 열은 530px뿐이라,
-     화면 폭으로 판단하면 영상 두 칸이 253px씩으로 쪼그라든다. */
-  container-type: inline-size;
-  container-name: stage;
 }
+/* 영상 배치를 **화면 폭이 아니라 이 띠의 폭**으로 정하기 위한 기준점.
+   984px 폴드를 세로로 들면 화면은 넓지만 무대 열은 530px뿐이라, 화면 폭으로
+   판단하면 영상 두 칸이 253px씩으로 쪼그라든다.
+   무대가 아니라 영상만 감싸는 이 요소에 두어야, 좁은 화면에서 무대를
+   display:contents 로 풀어도 기준점이 살아남는다. */
+.video-band { container-type: inline-size; container-name: stage; min-width: 0; }
+#dock-sentinel { height: 0; }
 .stage > * { flex: 0 0 auto; }
 .panel {
   /* basis를 0으로 둔다. auto면 패널이 **자기 내용 높이**를 요구해 무대를
@@ -913,3 +915,61 @@ body {
 }
 /* 나란히 보이는 넓은 화면에서는 바꿀 것이 없다 — 표식도 숨긴다 */
 .chip-swap-mark { display: none; font-size: var(--t-micro); opacity: .8; }
+
+/* ── 좁은 화면: 한 줄기 스크롤 + 위에 붙는 도크 ──────────────────
+ *
+ * 무대를 못박아 두니 패널에 남는 높이가 97px(화면의 18%)까지 눌렸다.
+ * 그래서 좁은 화면에서는 **페이지가 통째로 스크롤**되게 되돌린다 —
+ * 표와 목록이 원하는 만큼 길어진다.
+ *
+ * 다만 예전처럼 맥락까지 잃지는 않는다. 스크롤하면 영상만 올라가 사라지고
+ * **벽시계·재생·구간 띠는 위에 붙어 남는다.** 내보내기 구간을 고를 때
+ * 지금 몇 시 어디를 보는지가 눈앞에 있어야 한다는 원칙은 그대로다.
+ */
+@media (max-width: 899px) and (orientation: portrait), (max-width: 559px) {
+  /* 페이지(=본 화면)가 스크롤 주체가 된다 */
+  /* 위 여백을 0으로. 여백이 있으면 도크가 그만큼 아래에 붙어, 그 틈으로
+     영상 아래쪽 자락이 비친다. 여백은 도크 안쪽에서 준다. */
+  .view.app { overflow-y: auto; padding-top: 0; padding-bottom: calc(var(--s-5) + var(--safe-b)); }
+  .video-band { margin-top: var(--s-3); }
+  .app { display: block; height: auto; }
+  /* 무대를 상자에서 풀어 **도크가 페이지 전체에 붙을 수 있게** 한다.
+     sticky는 부모 안에서만 붙으므로, 도크가 무대 안에 있으면 무대가 위로
+     사라질 때 같이 사라진다 (실제로 그랬다). */
+  .stage { display: contents; }
+
+  /* 컨트롤 + 띠 묶음이 위에 붙는다 */
+  .stage-dock {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--bg);
+    padding-top: var(--s-2);
+  }
+  /* 붙어 있는 동안에는 곁가지를 접어 자리를 아낀다 */
+  .is-docked .stage-dock .note-row,
+  .is-docked .stage-dock .session-chips,
+  .is-docked .stage-dock #debug-note { display: none; }
+  .is-docked .stage-dock .ctl-transport > *:not(#btn-play):not(.ctl-gap) { display: none; }
+  .is-docked .stage-dock .controls { flex-direction: row; align-items: center; gap:var(--s-2); }
+  .is-docked .stage-dock .ctl-transport { flex: 0 0 auto; }
+  .is-docked .stage-dock .ctl-scrub { flex: 1 1 auto; min-width: 0; }
+  .is-docked .stage-dock .time-rel { display: none; }
+  .is-docked .stage-dock .time-clock { font-size: var(--t-title); }
+
+  /* 패널은 길이 제한 없이 흐른다. 탭은 도크 바로 아래에 붙는다.
+     **overflow: hidden 을 반드시 풀어야 한다** — 부모가 overflow를 가지면
+     그 안의 sticky는 부모 안에 갇혀 붙지 않는다 (탭이 그래서 안 붙었다). */
+  .panel { display: block; min-height: 0; margin-bottom: 0; overflow: visible; }
+  .tabs {
+    order: 0;
+    position: sticky;
+    top: var(--dock-h, 0px);
+    z-index: 4;
+    background: var(--surface);
+    border-top: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab.is-active { border-top: 0; margin-top: 0; border-bottom-color: var(--accent); }
+  .tab-panels { overflow: visible; min-height: 0; }
+}

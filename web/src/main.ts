@@ -212,6 +212,39 @@ $('btn-fold-stage').addEventListener('click', () => {
   } catch { /* 저장 못 해도 이번 세션에는 적용된다 */ }
 });
 
+/**
+ * 좁은 화면에서 도크(컨트롤+띠)가 위에 붙었는지 살핀다.
+ *
+ * 붙어 있는 동안에는 곁가지를 접어 자리를 아끼고, 탭바가 도크 바로 아래에
+ * 붙도록 도크 높이를 CSS에 알려 준다. 높이를 코드 양쪽에 적어 두면 한쪽만
+ * 고쳐져 어긋나므로, **재서 알려 주는 쪽**을 택한다.
+ */
+function watchDock(): void {
+  const dock = document.getElementById('stage-dock');
+  const scroller = $('view-main');
+  if (!dock) return;
+
+  const sync = (): void => {
+    document.documentElement.style.setProperty('--dock-h', `${Math.round(dock.getBoundingClientRect().height)}px`);
+  };
+  new ResizeObserver(sync).observe(dock);
+  sync();
+
+  // 붙었는지는 **표식이 화면 위로 빠져나갔는지**로 판정한다.
+  // 좌표를 직접 비교하면 스크롤 영역의 안쪽 여백만큼 어긋나 늘 어긋난 값이
+  // 나온다(실제로 그래서 한 번도 '붙음'으로 안 잡혔다).
+  const sentinel = document.getElementById('dock-sentinel');
+  if (!sentinel) return;
+  new IntersectionObserver(
+    ([entry]) => {
+      document.body.classList.toggle('is-docked', !entry.isIntersecting);
+      sync();
+    },
+    { root: scroller, threshold: 0 },
+  ).observe(sentinel);
+}
+watchDock();
+
 const dropzone = $('dropzone');
 for (const type of ['dragenter', 'dragover']) {
   dropzone.addEventListener(type, (e) => { e.preventDefault(); dropzone.classList.add('is-over'); });

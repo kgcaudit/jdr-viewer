@@ -995,35 +995,53 @@ test('넓은 화면에서는 두 대를 나란히 두고 전환하지 않는다'
   expect(await shown()).toEqual([true, true]);
 });
 
-test('앱 셸 — 패널을 스크롤해도 벽시계와 띠가 화면에 남는다', async ({ page }) => {
-  // 개편 전에는 한 줄기 스크롤이라 내보내기 칸까지 내려오면 재생 위치가
-  // 화면 밖이었다. 그걸 막으려고 벽시계를 한 벌 더 그려야 했다.
-  await page.setViewportSize({ width: 390, height: 844 });
+test('좁은 화면에서 스크롤해도 벽시계·띠·재생이 위에 붙어 남는다', async ({ page }) => {
+  // 무대를 못박아 두니 패널에 남는 높이가 97px까지 눌렸다. 그래서 좁은
+  // 화면에서는 페이지가 통째로 스크롤되게 되돌리되, 예전처럼 맥락까지
+  // 잃지는 않는다 — 영상만 올라가 사라지고 도크는 위에 붙는다.
+  await page.setViewportSize({ width: 412, height: 620 });
   await openMorningSession(page);
   await page.locator('[data-tab="export"]').click();
-  await page.locator('.tab-panels').evaluate((e) => { e.scrollTop = 600; });
-  await page.waitForTimeout(150);
 
-  const state = await page.evaluate(() => {
+  const probe = () => page.evaluate(() => {
     const inView = (el: Element | null): boolean => {
       if (!el) return false;
       const r = el.getBoundingClientRect();
       return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0;
     };
     const tabs = document.querySelector('.tabs')!.getBoundingClientRect();
+    const dock = document.getElementById('stage-dock')!.getBoundingClientRect();
     return {
+      docked: document.body.classList.contains('is-docked'),
       clock: inView(document.getElementById('time-clock')),
       strip: inView(document.querySelector('.strip-track')),
       play: inView(document.getElementById('btn-play')),
-      tabsGap: Math.round(window.innerHeight - tabs.bottom),
-      pageScroll: document.body.scrollHeight - document.body.clientHeight,
+      video: inView(document.getElementById('video-grid')),
+      tabsInView: tabs.top >= -1 && tabs.bottom <= window.innerHeight + 1,
+      // 탭이 도크 아래에 붙어야 한다 (서로 겹치면 안 된다)
+      tabsBelowDock: Math.round(tabs.top) >= Math.round(dock.bottom) - 1,
     };
   });
-  expect(state.clock, '벽시계가 보여야 한다').toBe(true);
-  expect(state.strip, '구간 띠가 보여야 한다').toBe(true);
-  expect(state.play, '재생 버튼이 보여야 한다').toBe(true);
-  expect(state.tabsGap, '탭바가 화면 아래에 붙어 있어야 한다').toBeLessThanOrEqual(2);
-  expect(state.pageScroll, '페이지 자체는 스크롤하지 않는다').toBe(0);
+
+  const scroller = page.locator('#view-main');
+  await scroller.evaluate((e) => { e.scrollTop = e.scrollHeight; });
+  await page.waitForTimeout(250);
+  const after = await probe();
+
+  expect(after.docked, '도크가 위에 붙어야 한다').toBe(true);
+  expect(after.video, '영상은 올라가 사라진다').toBe(false);
+  expect(after.clock, '벽시계는 남는다').toBe(true);
+  expect(after.strip, '구간 띠는 남는다').toBe(true);
+  expect(after.play, '재생 버튼은 남는다').toBe(true);
+  expect(after.tabsInView, '탭도 손에 닿는다').toBe(true);
+  expect(after.tabsBelowDock, '탭은 도크 아래에 붙는다').toBe(true);
+
+  // 맨 위로 돌아오면 영상이 다시 보인다
+  await scroller.evaluate((e) => { e.scrollTop = 0; });
+  await page.waitForTimeout(250);
+  const top = await probe();
+  expect(top.docked).toBe(false);
+  expect(top.video, '맨 위에서는 영상이 보인다').toBe(true);
 });
 
 test('넓은 화면에서는 캘린더가 좌우로 갈린다 — 고르는 곳과 결과', async ({ page }) => {
@@ -1154,38 +1172,45 @@ test('영상 배치는 화면 폭이 아니라 무대 폭으로 정한다', asyn
   expect(wideStage.single, '무대가 넓으면 전방·후방을 나란히 놓는다').toBe(false);
 });
 
-test('영상을 접으면 표 볼 공간이 세 배가 되고, 벽시계·띠·재생은 남는다', async ({ page }) => {
-  // 세로가 짧은 기기에서 패널에 남는 높이가 97px(화면의 18%)까지 눌렸다.
-  // 다섯 줄도 안 들어가는데 "탭바가 살아 있으면 된다"는 낮은 기준으로
-  // 통과하고 있었다. 접으면 영상만 숨고 맥락은 그대로 남아야 한다.
+test('영상을 접으면 스크롤이 짧아지고, 벽시계·띠·재생은 남는다', async ({ page }) => {
+  // 좁은 화면은 이제 페이지가 통째로 스크롤되므로 접기가 패널 "높이"를
+  // 늘리지는 않는다. 대신 영상만큼 **스크롤이 짧아진다** — 표를 보러
+  // 내려가는 거리가 줄어든다. 맥락(벽시계·띠·재생)은 그대로 남아야 한다.
   await page.setViewportSize({ width: 412, height: 620 });
   await openMorningSession(page);
   await page.locator('[data-tab="sensor"]').click();
 
-  const probe = () => ({
-    panelH: Math.round((document.querySelector('.tab-panels') as HTMLElement).clientHeight),
-    videoShown: (document.querySelector('#video-grid') as HTMLElement).offsetParent !== null,
-    clock: (() => { const r = document.getElementById('time-clock')!.getBoundingClientRect(); return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0; })(),
-    strip: (() => { const r = document.querySelector('.strip-track')!.getBoundingClientRect(); return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0; })(),
-    play: (() => { const r = document.getElementById('btn-play')!.getBoundingClientRect(); return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0; })(),
+  const probe = () => page.evaluate(() => {
+    const inView = (el: Element | null): boolean => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0;
+    };
+    const sc = document.getElementById('view-main') as HTMLElement;
+    return {
+      scrollable: sc.scrollHeight - sc.clientHeight,
+      videoShown: (document.getElementById('video-grid') as HTMLElement).offsetParent !== null,
+      clock: inView(document.getElementById('time-clock')),
+      strip: inView(document.querySelector('.strip-track')),
+      play: inView(document.getElementById('btn-play')),
+    };
   });
 
-  const before = await page.evaluate(probe);
+  const before = await probe();
   expect(before.videoShown).toBe(true);
 
   await page.locator('#btn-fold-stage').click();
-  const after = await page.evaluate(probe);
+  await page.waitForTimeout(150);
+  const after = await probe();
 
   expect(after.videoShown, '영상은 숨는다').toBe(false);
-  expect(after.panelH, '표 볼 공간이 크게 늘어야 한다').toBeGreaterThan(before.panelH * 2.5);
-  // 앱 셸로 얻은 것을 잃지 않는다
+  expect(after.scrollable, '영상 높이만큼 스크롤이 짧아진다').toBeLessThan(before.scrollable - 100);
   expect(after.clock, '접어도 벽시계는 남는다').toBe(true);
   expect(after.strip, '접어도 구간 띠는 남는다').toBe(true);
   expect(after.play, '접어도 재생 버튼은 남는다').toBe(true);
 
-  // 다시 누르면 돌아온다
   await page.locator('#btn-fold-stage').click();
-  expect((await page.evaluate(probe)).videoShown).toBe(true);
+  expect((await probe()).videoShown).toBe(true);
 });
 
 test('접은 상태를 기억한다', async ({ page }) => {
