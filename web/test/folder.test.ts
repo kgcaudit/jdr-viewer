@@ -116,9 +116,20 @@ describe('기기가 미리 잡아 둔 파일', () => {
     expect(seg.error).toMatch(/아직 녹화되지 않은/);
   });
 
+  it('기기가 남긴 껍데기(헤더 크기 표식)만 있어도 빈 파일이다', async () => {
+    // 실기기 event/idx_db: 512바이트가 전부 0인데 딱 한 자리, +0x1FC의
+    // 헤더 크기 표식(0x200)만 찍혀 있었다. 기기는 빈 자리에도 껍데기를
+    // 남긴다 — "전부 0"만 빈 파일로 치면 예약 파일이 다시 오류로 뜬다.
+    const bytes = new Uint8Array(2 << 20);
+    new DataView(bytes.buffer).setUint32(0x1fc, 0x200, true);
+    const seg = await probe(bytes as Uint8Array<ArrayBuffer>, '00000000.jdr', 'event/00000000.jdr');
+    expect(seg.blank).toBe(true);
+    expect(seg.error).toMatch(/아직 녹화되지 않은/);
+  });
+
   it('내용이 있는데 못 읽은 파일은 빈 파일과 구분한다', async () => {
     const bytes = new Uint8Array(2 << 20);
-    bytes.fill(0xab, 1 << 20, (1 << 20) + 4096); // 뭔가 쓰여 있다
+    bytes.fill(0xab, 1 << 20, (1 << 20) + 4096); // 4KB나 쓰여 있다 — 껍데기가 아니다
     const seg = await probe(bytes as Uint8Array<ArrayBuffer>, 'x.jdr');
     expect(seg.blank).toBeFalsy();
     expect(seg.error).toMatch(/JEB1/);

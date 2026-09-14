@@ -94,27 +94,28 @@ const MAGIC = [0x31, 0x42, 0x45, 0x4a];
 /**
  * 첫 블록 자리. 못 찾으면 at = -1.
  *
- * 어차피 앞머리를 통째로 읽으므로 **0으로만 차 있는지도 같이 본다.** 기기가
- * 미리 잡아 두기만 한 빈 파일과 "내용은 있는데 못 읽는 파일"을 가르는 데
- * 쓴다. 표본을 뜨는 것보다 훨씬 확실하고, 읽기는 한 번도 늘지 않는다.
+ * 어차피 앞머리를 통째로 읽으므로 **비어 있는지도 같이 본다.** 기기가 미리
+ * 잡아 두기만 한 파일과 "내용은 있는데 못 읽는 파일"을 가르는 데 쓴다.
+ * 표본을 뜨는 것보다 확실하고, 읽기는 한 번도 늘지 않는다.
+ *
+ * "전부 0"을 요구하면 안 된다. 실기기의 event 폴더 `idx_db`는 512바이트가
+ * 전부 0인데 **딱 한 자리**, 헤더 크기 표식(+0x1FC = 0x200)만 찍혀 있었다.
+ * 기기는 빈 자리에도 껍데기를 남긴다. 그걸 "내용 있음"으로 치면 멀쩡한
+ * 예약 파일 166개가 다시 "열지 못한 파일"이 된다.
  */
-async function findFirstBlock(src: ByteSource): Promise<{ at: number; headZero: boolean }> {
+async function findFirstBlock(src: ByteSource): Promise<{ at: number; headNoise: number }> {
   // 거의 모든 파일은 0번지에서 시작한다
-  if (await validateHeader(src, 0)) return { at: 0, headZero: false };
+  if (await validateHeader(src, 0)) return { at: 0, headNoise: Infinity };
   const chunk = await src.read(0, Math.min(SCAN_LIMIT, src.size));
-  let headZero = true;
-  for (let i = 0; i + 4 <= chunk.length; i++) {
-    if (chunk[i] !== 0) headZero = false;
-    if (chunk[i] === MAGIC[0] && chunk[i + 1] === MAGIC[1] && chunk[i + 2] === MAGIC[2] && chunk[i + 3] === MAGIC[3]) {
-      if (await validateHeader(src, i)) return { at: i, headZero: false };
-    }
+  let headNoise = 0;
+  for (let i = 0; i < chunk.length; i++) {
+    if (chunk[i] !== 0) headNoise++;
+    if (i + 4 > chunk.length) continue;
+    if (chunk[i] !== MAGIC[0] || chunk[i + 1] !== MAGIC[1]) continue;
+    if (chunk[i + 2] !== MAGIC[2] || chunk[i + 3] !== MAGIC[3]) continue;
+    if (await validateHeader(src, i)) return { at: i, headNoise: Infinity };
   }
-  if (headZero) {
-    for (let i = Math.max(0, chunk.length - 4); i < chunk.length; i++) {
-      if (chunk[i] !== 0) { headZero = false; break; }
-    }
-  }
-  return { at: -1, headZero };
+  return { at: -1, headNoise };
 }
 
 /** 파일명에서 YYYYMMDDHHMMSS를 뽑는다 (구분자 허용). 헤더 시각이 없을 때의 최후 보루. */
@@ -157,7 +158,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     // 기기는 카드를 포맷할 때 녹화할 자리를 **미리 파일로 잡아 둔다.** 아직
     // 쓰이지 않은 그 파일은 0으로 채워져 있을 뿐 고장난 게 아니다.
     // "읽지 못한 파일"로 세면 사용자는 증거가 깨진 줄 안다.
-    if (found.headZero && await looksBlank(src)) {
+    if (found.headNoise <= BLANK_NOISE_BYTES && await looksBlank(src)) {
       return { ...base, blank: true, error: '아직 녹화되지 않은 빈 파일입니다 (기기가 미리 잡아 둔 자리)' };
     }
     return { ...base, error: 'JEB1 블록을 찾지 못했습니다 (JDR이 아니거나 지원하지 않는 변형)' };
@@ -435,6 +436,14 @@ function innerGapOf(blocks: { startMs: number; endMs: number }[]): number {
 /** 훑어볼 표본 크기와 지점 수 — 파일 전체를 읽지 않고 "비었는지"만 가른다 */
 const BLANK_SAMPLE = 32 << 10;
 const BLANK_POINTS = 5;
+/**
+ * 빈 파일로 볼 때 눈감아 주는 0 아닌 바이트 수.
+ *
+ * 기기가 빈 자리에 남기는 껍데기(헤더 크기 표식 따위) 몇 바이트는 내용이
+ * 아니다. 영상이 한 프레임이라도 있으면 수만 바이트가 되므로 이 문턱을
+ * 넘을 일이 없다.
+ */
+const BLANK_NOISE_BYTES = 64;
 
 /**
  * 앞머리(SCAN_LIMIT)가 0인 건 이미 확인됐다. 그 뒤도 0인지 떠서 본다.
@@ -442,7 +451,7 @@ const BLANK_POINTS = 5;
  */
 async function looksBlank(src: ByteSource): Promise<boolean> {
   if (src.size <= SCAN_LIMIT) return true;
-  return isZeroRun(src, SCAN_LIMIT, src.size);
+  return isZeroRun(src, SCAN_LIMIT, src.size, BLANK_NOISE_BYTES);
 }
 
 /**
@@ -452,9 +461,10 @@ async function looksBlank(src: ByteSource): Promise<boolean> {
  * 앞 32KB만 보고 "빈 꼬리"라고 단정하면 **못 읽은 블록을 없는 셈** 치게 된다.
  * 범위를 나눠 여러 곳을 떠 본다.
  */
-async function isZeroRun(src: ByteSource, from: number, to: number): Promise<boolean> {
+async function isZeroRun(src: ByteSource, from: number, to: number, noise = 0): Promise<boolean> {
   const span = to - from;
   if (span <= 0) return true;
+  let seen = 0;
   const points = Math.min(BLANK_POINTS, Math.max(1, Math.ceil(span / BLANK_SAMPLE)));
   // **끝을 반드시 본다.** 정렬 패딩 뒤 맨 끝에 블록이 붙어 있는 파일이 있어,
   // 고르게만 뜨면 그 블록을 놓치고 "빈 꼬리"로 단정하게 된다.
@@ -464,7 +474,9 @@ async function isZeroRun(src: ByteSource, from: number, to: number): Promise<boo
     const length = Math.min(BLANK_SAMPLE, to - at);
     if (length <= 0) continue;
     const chunk = await src.read(at, length);
-    for (let k = 0; k < chunk.length; k++) if (chunk[k] !== 0) return false;
+    for (let k = 0; k < chunk.length; k++) {
+      if (chunk[k] !== 0 && ++seen > noise) return false;
+    }
   }
   return true;
 }
