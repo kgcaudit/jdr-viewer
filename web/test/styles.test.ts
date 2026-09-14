@@ -50,3 +50,58 @@ describe('스타일시트', () => {
     expect(css).toMatch(/-webkit-tap-highlight-color:\s*transparent/);
   });
 });
+
+/**
+ * 쓰는 토큰은 반드시 정의돼 있어야 한다.
+ *
+ * `var(--없는이름)`은 조용히 실패한다. 오류도 경고도 없이 **그 선언 하나가
+ * 통째로 무효**가 되어 값이 상속되어 버린다. 실제로 `--text-2`라는 오타가
+ * 네 곳에 있었고, 회색이어야 할 라벨이 본문색으로 나오고 있었다.
+ * 토큰을 쓰기로 한 이상 이건 기계가 잡아야 한다.
+ */
+/** @media (hover: hover) and (pointer: fine) 블록을 통째로 들어낸다 */
+function stripMouseOnly(source: string): string {
+  let out = '';
+  let i = 0;
+  for (;;) {
+    const at = source.indexOf('@media (hover: hover)', i);
+    if (at < 0) { out += source.slice(i); break; }
+    out += source.slice(i, at);
+    let depth = 0;
+    let k = source.indexOf('{', at);
+    if (k < 0) break;
+    for (; k < source.length; k++) {
+      if (source[k] === '{') depth++;
+      else if (source[k] === '}' && --depth === 0) { k++; break; }
+    }
+    i = k;
+  }
+  return out;
+}
+
+describe('디자인 토큰', () => {
+  /** :root 와 @media 안의 :root 에서 정의된 이름 */
+  const defined = new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gim)].map((m) => m[1]));
+  /** fallback이 있는 var(--x, ...)은 없어도 동작하므로 뺀다 */
+  const used = [...rules.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi)].map((m) => m[1]);
+
+  it('var()로 참조하는 이름이 모두 정의돼 있다', () => {
+    const missing = [...new Set(used.filter((n) => !defined.has(n)))];
+    expect(missing, `정의되지 않은 토큰: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('간격·글자·터치 토큰이 실제로 쓰이고 있다', () => {
+    for (const name of ['--s-2', '--s-4', '--t-body', '--t-label', '--tap']) {
+      expect(used, `${name} 이 쓰이지 않는다`).toContain(name);
+    }
+  });
+
+  it('손가락 규격은 44px 아래로 내려가지 않는다', () => {
+    expect(/--tap:\s*44px/.test(css)).toBe(true);
+    // 버튼·탭·입력의 min-height/min-width에 40px 같은 값이 다시 새어 들어오면 잡는다.
+    // 마우스 전용 블록은 뺀다 — 손가락 규격은 손가락한테만 필요하다.
+    const small = [...stripMouseOnly(rules).matchAll(/min-(?:height|width):\s*(3\d|4[0-3])px/g)]
+      .map((m) => m[0]);
+    expect(small, `44px 미만 터치 규격: ${small.join(', ')}`).toEqual([]);
+  });
+});

@@ -109,14 +109,14 @@ body {
 .btn {
   font: inherit; padding:7px 14px; border-radius: var(--radius);
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
-  cursor: pointer; min-height: 40px;
+  cursor: pointer; min-height: var(--tap);
 }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn-primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
-.btn-icon { min-width: 42px; padding:7px 9px; }
+.btn-icon { min-width: var(--tap); padding:7px 9px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .linklike { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding:0; text-decoration: underline; }
-.select { font: inherit; padding:7px 6px; min-height: 40px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.select { font: inherit; padding:7px 6px; min-height: var(--tap); border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .view { padding:max(var(--s-4), env(safe-area-inset-top)) var(--s-4) var(--s-5); }
@@ -183,30 +183,33 @@ body {
   margin-top:var(--s-3); padding:var(--s-2) 10px; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
 }
-.seek { flex: 1 1 120px; min-width: 90px; accent-color: var(--accent); height: 40px; }
+/* 막대는 얇아 보이되 잡히는 높이는 손가락 규격을 지킨다 */
+.seek { flex: 1 1 120px; min-width: 90px; accent-color: var(--accent); height: var(--tap); }
 .time {
-  font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--muted);
+  font-variant-numeric: tabular-nums; font-size: var(--t-micro); color: var(--muted);
   white-space: nowrap; flex: 0 0 auto;
 }
 /* 좁아지면 재생 컨트롤 / 슬라이더 / 설정 세 덩어리로 줄바꿈된다 */
 @media (max-width: 620px) {
-  /* 재생 컨트롤 한 줄 + 슬라이더 한 줄로 떨어지게 폭을 조인다 */
+  /* 재생 컨트롤 한 줄 + 슬라이더 한 줄로 떨어지게 폭을 조인다.
+     **좁다고 손가락이 작아지지는 않는다** — 폭만 줄이고 44px는 지킨다. */
   .controls { gap:5px; padding:var(--s-2); }
-  .controls .btn-icon { min-width: 40px; padding:7px 6px; }
-  .controls .btn-skip { min-width: 44px; }
-  .controls .btn-play { min-width: 44px; }
-  .controls .select { min-width: 56px; padding:7px var(--s-1); }
+  .controls .btn-icon,
+  .controls .btn-skip,
+  .controls .btn-play { min-width: var(--tap); padding:7px var(--s-1); }
+  .controls .select { min-width: 58px; padding:7px var(--s-1); }
   .seek { flex: 1 1 100%; order: 10; }
   .time { order: 11; }
 }
-.recorded-time { margin:var(--s-2) 2px 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.recorded-time { margin:var(--s-2) 2px 0; font-size: var(--t-label); color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ── 패널/탭 ────────────────────────── */
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
 .tabs { display: flex; border-bottom: 1px solid var(--border); overflow-x: auto; }
 .tab {
   flex: 1 0 auto; padding:var(--s-3) 14px; background: none; border: 0; border-bottom: 2px solid transparent;
-  color: var(--muted); font: inherit; font-weight: 550; cursor: pointer; min-height: 46px; white-space: nowrap;
+  color: var(--muted); font: inherit; font-size: var(--t-label); font-weight: 550;
+  cursor: pointer; min-height: var(--tap); white-space: nowrap;
 }
 .tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
 .tab-panel { display: none; padding:14px; }
@@ -216,10 +219,10 @@ body {
 .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap:6px 14px; margin:0 0 var(--s-4); font-size: 14px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin:0; word-break: break-all; font-variant-numeric: tabular-nums; }
-.section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin:18px 0 var(--s-2); }
+.section-title { font-size: var(--t-label); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin:18px 0 var(--s-2); }
 .section-title:first-child { margin-top:0; }
 .tag-grid { display: flex; flex-wrap: wrap; gap:6px; }
-.tag-pill { font-size: 12px; padding:3px 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.tag-pill { font-size: var(--t-micro); padding:3px 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-variant-numeric: tabular-nums; }
 .status-ok { color: var(--ok); font-weight: 600; }
 .status-warn { color: var(--warn); font-weight: 600; }
 .status-bad { color: var(--danger); font-weight: 600; }
@@ -406,7 +409,7 @@ body {
 .session-chips { display: flex; gap:6px; flex-wrap: wrap; margin-top:10px; }
 .chip-btn {
   display: inline-flex; align-items: center; gap:6px;
-  padding:6px var(--s-3); min-height: 36px; border-radius: 999px;
+  padding:6px var(--s-3); min-height: var(--tap); border-radius: 999px;
   border: 1px solid var(--border); background: var(--surface);
   color: var(--text); font: inherit; font-size: 13px; font-weight: 550;
   cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums;
@@ -416,7 +419,7 @@ body {
 
 .map-bar { display: flex; align-items: center; justify-content: space-between; gap:10px; margin-top:var(--s-2); }
 .map-bar p { margin:0; }
-.btn-sm { min-height: 32px; padding:5px 10px; font-size: 12px; flex: 0 0 auto; }
+.btn-sm { min-height: var(--tap); padding:5px 10px; font-size: var(--t-micro); flex: 0 0 auto; }
 
 /*
  * 범례가 값에 따라 좌우로 흔들리지 않도록 폭을 완전히 고정한다.
@@ -566,7 +569,7 @@ body {
 .note-row .file-note { flex: 1 1 auto; min-width: 0; }
 .wake-chip {
   flex: 0 0 auto; display: inline-flex; align-items: center; gap:var(--s-1);
-  padding:var(--s-1) 10px; min-height: 30px; border-radius: 999px;
+  padding:var(--s-1) 10px; min-height: var(--tap); border-radius: 999px;
   border: 1px solid var(--border); background: var(--surface); color: var(--muted);
   font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
@@ -597,9 +600,9 @@ body {
   padding:7px 0;
   border-top: 1px solid var(--border);
 }
-.gap-kind-n { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.gap-kind-n { font-variant-numeric: tabular-nums; color: var(--muted); }
 .gap-kind-d { font-variant-numeric: tabular-nums; font-weight: 600; }
-.gap-kind-l { line-height: 1.45; }
+.gap-kind-l { line-height: var(--lh-body); }
 
 /* 재생 위치의 벽시계 시각.
    구간을 지정해 내보낼 때 정작 필요한 건 "지금 몇 시인가"다. 파일 안 위치
@@ -607,15 +610,17 @@ body {
 .time-clock {
   display: block;
   font-variant-numeric: tabular-nums;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  /* 지금 화면에서 제일 중요한 값이다 — 크기로 그렇게 말한다 */
+  font-size: var(--t-display);
+  line-height: var(--lh-tight);
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 .time-rel {
   display: block;
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  color: var(--text-2);
+  font-size: var(--t-micro);
+  color: var(--muted);
 }
 
 /* 내보내기 칸에서도 현재 재생 위치가 보여야 한다 — 위로 스크롤하지 않게 */
@@ -630,10 +635,20 @@ body {
   border-radius: 8px;
   background: var(--surface-2);
 }
-.rng-now-label { font-size: 12px; color: var(--text-2); }
+.rng-now-label { font-size: var(--t-micro); color: var(--muted); }
 .rng-now-time {
   font-variant-numeric: tabular-nums;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--t-title);
+  font-weight: 650;
 }
-.rng-now-src { font-size: 12px; color: var(--text-2); }
+.rng-now-src { font-size: var(--t-micro); color: var(--muted); }
+
+/* 작은 알약형 버튼들.
+   기본값은 **손가락 규격(44px)** 이다. 이것들도 전부 실제로 누르는 버튼이라
+   (운행 칩, 내보내기 프리셋, 화면 켜둠) 좁다고 작게 두면 오조작이 난다.
+   마우스가 있는 기기에서만 원래의 촘촘한 높이로 되돌린다. */
+@media (hover: hover) and (pointer: fine) {
+  .chip-btn { min-height: 36px; }
+  .btn-sm { min-height: 32px; }
+  .wake-chip { min-height: 30px; }
+}
