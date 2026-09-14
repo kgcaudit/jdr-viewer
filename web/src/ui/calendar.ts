@@ -34,6 +34,10 @@ export interface LoadStats {
   missingFromIndex: number;
   /** 방금 "갱신"으로 원본에서 전부 다시 읽었는가 */
   rebuilt?: boolean;
+  /** 열지 못한 파일 수 (아래 blank 포함하지 않는다) */
+  unreadable: number;
+  /** 아직 녹화되지 않은 빈 파일 수 — 고장이 아니라 기기가 잡아 둔 자리 */
+  blank: number;
 }
 
 function loadSection(stats: LoadStats): string {
@@ -66,11 +70,24 @@ function loadSection(stats: LoadStats): string {
   // 저장은 "지금 아는 것을 파일로", 갱신은 "원본에서 다시 알아내기"다.
   // 둘은 짝이라 나란히 둔다 — 인덱스가 꼬였을 때 갱신하고 곧바로 저장한다.
   const wantSave = stale || stats.rebuilt === true;
+  // 826개를 읽었는데 화면에는 660개만 있으면, 나머지 166개가 어디 갔는지
+  // 반드시 말해야 한다. 감사 자료에서 파일이 소리 없이 사라지면 안 된다.
+  const dropped = stats.unreadable + stats.blank;
+  const droppedNote = dropped === 0 ? '' : `<p class="small" style="margin:0 0 8px">
+    읽은 ${num(stats.total)}개 가운데 <strong>${num(dropped)}개는 타임라인에 없습니다.</strong><br>
+    ${stats.blank > 0
+      ? `<span class="muted">· 아직 녹화되지 않은 빈 파일 ${num(stats.blank)}개 — 기기가 미리 잡아 둔 자리입니다 (정상)</span><br>`
+      : ''}
+    ${stats.unreadable > 0
+      ? `<span class="status-warn">· 열지 못한 파일 ${num(stats.unreadable)}개</span> <span class="muted">— 구간 탭에서 사유를 볼 수 있습니다</span>`
+      : ''}</p>`;
+
   return `
     <p class="section-title">불러온 방식</p>
     ${err}
     ${staleNote}
     <p class="muted small" style="margin:0 0 8px">${parts.join(' · ') || '없음'}</p>
+    ${droppedNote}
     <div class="idx-row">
       <button class="btn${wantSave ? ' btn-primary' : ''}" type="button" id="btn-save-index">인덱스 ${stale ? '다시 ' : ''}저장 (${escapeHtml(INDEX_FILE_NAME)})</button>
       <button class="btn" type="button" id="btn-rebuild-index">인덱스 갱신</button>

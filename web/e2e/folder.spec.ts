@@ -279,6 +279,16 @@ test('파일이 바뀌면 그 파일만 다시 읽는다', async ({ page }, test
   }
 });
 
+test('타임라인에 오르지 못한 파일이 몇 개인지 밝힌다', async ({ page }) => {
+  // 실기기 카드: 826개를 읽었는데 화면에는 660개뿐이었다. 나머지 166개가
+  // 어디 갔는지 화면에 한 줄도 없었다 — 감사 자료에서 그러면 안 된다.
+  await openFolder(page);
+  const cal = page.locator('#calendar');
+  // 고정 폴더에는 못 읽는 파일(broken.jdr)이 하나 있다
+  await expect(cal).toContainText('타임라인에 없습니다');
+  await expect(cal).toContainText('열지 못한 파일 1개');
+});
+
 test('인덱스가 꼬이면 갱신 버튼으로 원본에서 다시 만든다', async ({ page }, testInfo) => {
   await openFolder(page);
   const [download] = await Promise.all([

@@ -11,9 +11,9 @@ import type { SegmentInfo, TimeSource } from './segment';
 
 const DB_NAME = 'jdr-viewer';
 /** 3: 시작 시각 계산이 바뀌어 예전 캐시는 버린다 */
-// 4: 블록 체인 되찾기 / 5: 종료 시각을 패킷 기준으로 / 6: 끝은 영상·음성 기준
+// 4~6: 블록 체인·종료 시각 / 7: 빈 파일과 파일 안 공백을 따로 센다
 // 예전 값에는 잘린 길이와 부풀려진 길이가 굳어 있으므로 통째로 버린다
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const STORE = 'probes';
 
 /** 캐시에 담는 값 — 경로/폴더처럼 열 때마다 달라지는 건 넣지 않는다 */
@@ -32,6 +32,8 @@ export interface ProbeCacheValue {
   endEstimated: boolean;
   headerShiftMs: number;
   coveredBytes?: number;
+  blank?: boolean;
+  innerGapMs?: number;
   error?: string;
 }
 
@@ -47,7 +49,8 @@ export function toCacheValue(key: string, seg: SegmentInfo): ProbeCacheValue {
     gpsCount: seg.gpsCount, sensorCount: seg.sensorCount,
     blockOffsets: seg.blockOffsets, timeSource: seg.timeSource,
     endEstimated: seg.endEstimated, headerShiftMs: seg.headerShiftMs,
-    coveredBytes: seg.coveredBytes, error: seg.error,
+    coveredBytes: seg.coveredBytes, blank: seg.blank, innerGapMs: seg.innerGapMs,
+    error: seg.error,
   };
 }
 
@@ -63,7 +66,8 @@ export function fromCacheValue(
     gpsCount: v.gpsCount, sensorCount: v.sensorCount,
     blockOffsets: v.blockOffsets, timeSource: v.timeSource,
     endEstimated: v.endEstimated, headerShiftMs: v.headerShiftMs ?? 0,
-    coveredBytes: v.coveredBytes ?? 0, error: v.error,
+    coveredBytes: v.coveredBytes ?? 0, blank: v.blank, innerGapMs: v.innerGapMs ?? 0,
+    error: v.error,
   };
 }
 

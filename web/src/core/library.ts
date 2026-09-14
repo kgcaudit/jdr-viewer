@@ -71,6 +71,8 @@ export interface Library {
   spanMs: number;
   /** 실제 영상이 있는 시간 합계 (갭 제외) */
   coveredMs: number;
+  /** 파일 **안에서** 끊긴 시간의 합. 구간과 구간 사이가 아니라 파일 내부다. */
+  innerGapMs: number;
   gaps: Gap[];
   overlaps: Overlap[];
   /** 이벤트 구간 (event 폴더) */
@@ -168,7 +170,7 @@ export function buildLibrary(all: SegmentInfo[]): Library {
   const { chain: segments, duplicates, events } = buildChain(valid);
 
   const lib: Library = {
-    segments, invalid, startMs: NaN, endMs: NaN, spanMs: 0, coveredMs: 0,
+    segments, invalid, startMs: NaN, endMs: NaN, spanMs: 0, coveredMs: 0, innerGapMs: 0,
     gaps: [], overlaps: [], events, duplicates,
     totalBytes: all.reduce((s, x) => s + x.size, 0),
   };
@@ -193,6 +195,7 @@ export function recomputeLibrary(lib: Library): void {
     lib.endMs = NaN;
     lib.spanMs = 0;
     lib.coveredMs = 0;
+    lib.innerGapMs = 0;
     return;
   }
 
@@ -218,8 +221,12 @@ export function recomputeLibrary(lib: Library): void {
   lib.endMs = endMs;
   lib.spanMs = endMs - lib.startMs;
 
-  // 겹침을 빼고 실제로 덮인 시간을 구한다
+  // 겹침을 빼고 실제로 덮인 시간을 구한다.
+  // 파일 **안에서** 끊긴 시간도 뺀다 — 기기는 미리 잡아 둔 파일 하나에
+  // 이어서 쓰므로, 주차하고 시동을 걸면 같은 파일 안에 구멍이 생긴다.
+  // 그걸 세지 않으면 주차 시간이 "녹화됨"으로 잡힌다.
   let coveredMs = 0;
+  let innerGapMs = 0;
   let cursor = -Infinity;
   for (const s of segments) {
     const from = Math.max(s.startMs, cursor);
@@ -227,8 +234,10 @@ export function recomputeLibrary(lib: Library): void {
       coveredMs += s.endMs - from;
       cursor = s.endMs;
     }
+    innerGapMs += s.innerGapMs ?? 0;
   }
-  lib.coveredMs = coveredMs;
+  lib.coveredMs = Math.max(0, coveredMs - innerGapMs);
+  lib.innerGapMs = innerGapMs;
 }
 
 

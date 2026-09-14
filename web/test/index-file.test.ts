@@ -10,7 +10,7 @@ const seg = (name: string, folder = 'data'): SegmentInfo => ({
   startMs: Date.UTC(2026, 8, 9, 8, 16, 0), endMs: Date.UTC(2026, 8, 9, 8, 17, 9),
   durationMs: 69_000, packetCount: 5309, ch0Count: 2095, ch1Count: 2095,
   gpsCount: 70, sensorCount: 699, blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
-  coveredBytes: 73_400_320,
+  coveredBytes: 73_400_320, blank: false, innerGapMs: 0,
 });
 
 /** 실제 70MB 버퍼를 만들 수는 없으니 size만 실제 값으로 맞춰 준다 */

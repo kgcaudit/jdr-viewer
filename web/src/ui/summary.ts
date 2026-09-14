@@ -37,6 +37,9 @@ function librarySection(lib: Library): string {
       <dt>벽시계 길이</dt><dd>${formatDurationKo(lib.spanMs / 1000)}</dd>
       <dt>실제 영상</dt><dd>${formatDurationKo(lib.coveredMs / 1000)} <span class="muted">(${coverage.toFixed(1)}%)</span></dd>
       <dt>빈 구간</dt><dd>${gapSummary(lib)}</dd>
+      ${lib.innerGapMs > 0 ? `<dt>파일 안 공백</dt><dd><span class="status-warn">${formatDurationKo(lib.innerGapMs / 1000)}</span><br>
+        <span class="muted small">기기가 미리 잡아 둔 파일 하나에 이어 쓰다 보니, 주차하고 시동을 걸면
+        같은 파일 안에 구멍이 생깁니다. 위 "실제 영상"에서 이미 뺐습니다.</span></dd>` : ''}
       <dt>파일 읽힌 정도</dt><dd>${readCoverage(lib)}</dd>
       <dt>이벤트</dt><dd>${lib.events.length === 0 ? '없음' : `${num(lib.events.length)}건`}</dd>
       <dt>전체 크기</dt><dd>${bytes(lib.totalBytes)}</dd>
@@ -64,10 +67,14 @@ function readCoverage(lib: Library): string {
   }
   if (known === 0 || total === 0) return '<span class="muted">옛 인덱스라 알 수 없음 — 인덱스 갱신</span>';
   const pct = (covered / total) * 100;
+  // 파일은 70MB처럼 미리 잡혀 있고 녹화는 그보다 일찍 끝난다. 남은 꼬리가
+  // 0이면 프로브가 size로 채워 두므로, 여기서 모자란 건 **0이 아닌 데이터를
+  // 못 따라간 것**뿐이다. 예전에는 이 구분이 없어 멀쩡한 파일 수백 개가
+  // 경고로 떴다 — 늑대가 왔다고 매번 외치면 진짜일 때 아무도 안 본다.
   const short = lib.segments.filter(
-    (s) => s.coveredBytes !== undefined && s.size > 0 && s.coveredBytes < s.size * 0.98,
+    (s) => s.coveredBytes !== undefined && s.size > 0 && s.coveredBytes < s.size,
   ).length;
-  if (short === 0) return `<span class="status-ok">${pct.toFixed(1)}%</span> — 파일 끝까지 읽었습니다`;
+  if (short === 0) return `<span class="status-ok">${pct.toFixed(1)}%</span> — 내용이 있는 곳은 끝까지 읽었습니다`;
   return `<span class="status-warn">${pct.toFixed(1)}%</span> — 뒷부분을 덜 읽은 파일 ${num(short)}개<br>
     <span class="muted small">이만큼이 빈 구간으로 잘못 보일 수 있습니다. 인덱스를 갱신해 보세요.</span>`;
 }

@@ -46,6 +46,19 @@ export interface SegmentInfo {
    * 진단용이라 없을 수도 있다(옛 인덱스).
    */
   coveredBytes?: number;
+  /**
+   * 기기가 미리 잡아 두기만 하고 **아직 녹화하지 않은 빈 파일**.
+   * 고장이 아니라 예약 공간이므로 "읽지 못한 파일"과 섞어 세면 안 된다.
+   */
+  blank?: boolean;
+  /**
+   * 파일 **안에서** 녹화가 끊긴 시간의 합(ms).
+   *
+   * 기기는 미리 잡아 둔 파일 하나에 이어서 쓴다. 주차로 세워 두었다가
+   * 시동을 걸면 같은 파일 안에 몇 분~몇십 분짜리 구멍이 생긴다. 그 구멍을
+   * 세지 않으면 주차 시간이 "녹화됨"으로 잡힌다.
+   */
+  innerGapMs?: number;
   /** 읽을 수 없는 파일이면 사유 */
   error?: string;
 }
@@ -78,16 +91,30 @@ const MIN_RATE_PER_SEC = 1;
 const SCAN_LIMIT = 4 << 20;
 const MAGIC = [0x31, 0x42, 0x45, 0x4a];
 
-async function findFirstBlock(src: ByteSource): Promise<number> {
+/**
+ * 첫 블록 자리. 못 찾으면 at = -1.
+ *
+ * 어차피 앞머리를 통째로 읽으므로 **0으로만 차 있는지도 같이 본다.** 기기가
+ * 미리 잡아 두기만 한 빈 파일과 "내용은 있는데 못 읽는 파일"을 가르는 데
+ * 쓴다. 표본을 뜨는 것보다 훨씬 확실하고, 읽기는 한 번도 늘지 않는다.
+ */
+async function findFirstBlock(src: ByteSource): Promise<{ at: number; headZero: boolean }> {
   // 거의 모든 파일은 0번지에서 시작한다
-  if (await validateHeader(src, 0)) return 0;
+  if (await validateHeader(src, 0)) return { at: 0, headZero: false };
   const chunk = await src.read(0, Math.min(SCAN_LIMIT, src.size));
-  for (let i = 1; i + 4 <= chunk.length; i++) {
+  let headZero = true;
+  for (let i = 0; i + 4 <= chunk.length; i++) {
+    if (chunk[i] !== 0) headZero = false;
     if (chunk[i] === MAGIC[0] && chunk[i + 1] === MAGIC[1] && chunk[i + 2] === MAGIC[2] && chunk[i + 3] === MAGIC[3]) {
-      if (await validateHeader(src, i)) return i;
+      if (await validateHeader(src, i)) return { at: i, headZero: false };
     }
   }
-  return -1;
+  if (headZero) {
+    for (let i = Math.max(0, chunk.length - 4); i < chunk.length; i++) {
+      if (chunk[i] !== 0) { headZero = false; break; }
+    }
+  }
+  return { at: -1, headZero };
 }
 
 /** 파일명에서 YYYYMMDDHHMMSS를 뽑는다 (구분자 허용). 헤더 시각이 없을 때의 최후 보루. */
@@ -121,11 +148,18 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     startMs: NaN, endMs: NaN, durationMs: 0,
     packetCount: 0, ch0Count: 0, ch1Count: 0, gpsCount: 0, sensorCount: 0,
     blockOffsets: [], timeSource: 'unknown', endEstimated: false, headerShiftMs: 0,
-    coveredBytes: 0,
+    coveredBytes: 0, innerGapMs: 0,
   };
 
-  const first = await findFirstBlock(src);
+  const found = await findFirstBlock(src);
+  const first = found.at;
   if (first < 0) {
+    // 기기는 카드를 포맷할 때 녹화할 자리를 **미리 파일로 잡아 둔다.** 아직
+    // 쓰이지 않은 그 파일은 0으로 채워져 있을 뿐 고장난 게 아니다.
+    // "읽지 못한 파일"로 세면 사용자는 증거가 깨진 줄 안다.
+    if (found.headZero && await looksBlank(src)) {
+      return { ...base, blank: true, error: '아직 녹화되지 않은 빈 파일입니다 (기기가 미리 잡아 둔 자리)' };
+    }
     return { ...base, error: 'JEB1 블록을 찾지 못했습니다 (JDR이 아니거나 지원하지 않는 변형)' };
   }
 
@@ -140,6 +174,8 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
   /** 블록 체인이 실제로 덮은 마지막 바이트 — 파일 전체와 견줘 진단에 쓴다 */
   let coveredTo = first;
   let wideBudget = RESUME_WIDE_BUDGET;
+  /** 블록마다 헤더에 적힌 시간 범위 — 파일 안의 공백을 찾는 데 쓴다 */
+  const blockTimes: { startMs: number; endMs: number }[] = [];
   while (pos >= 0 && pos < size && offsets.length < MAX_BLOCKS) {
     const h = await validateHeader(src, pos);
     if (!h) {
@@ -153,6 +189,10 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     const dv = new DataView(h.raw.buffer, h.raw.byteOffset, h.raw.byteLength);
     if (!firstHeader) firstHeader = dv;
     lastHeader = dv;
+    blockTimes.push({
+      startMs: readSystemTimeFromView(dv, 0x94),
+      endMs: readSystemTimeFromView(dv, 0xa4),
+    });
     lastIndexOffset = h.indexOffset;
     lastCount = h.packetCount;
     offsets.push(pos);
@@ -173,7 +213,13 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     return { ...base, error: '헤더를 읽을 수 없습니다' };
   }
   base.blockOffsets = offsets;
-  base.coveredBytes = Math.max(0, coveredTo - first);
+  // 파일은 70MB처럼 미리 잡혀 있고 녹화는 그보다 일찍 끝난다. 남은 꼬리가
+  // 0으로 채워져 있으면 **못 읽은 게 아니라 안 쓴 것**이다. 그걸 "덜 읽음"으로
+  // 세면 멀쩡한 파일 수백 개가 경고로 뜬다.
+  base.coveredBytes = (coveredTo < size && await isZeroRun(src, coveredTo, size))
+    ? size
+    : Math.max(0, coveredTo - first);
+  base.innerGapMs = innerGapOf(blockTimes);
 
   // ── 시간 범위: 헤더 → 패킷 → 파일명 순으로 시도 ──
   let startMs = readSystemTimeFromView(firstHeader, 0x94);
@@ -369,4 +415,56 @@ export function durationExceedsContent(durationMs: number, frames: number, packe
   const units = Math.max(frames, packets);
   if (units < 2) return false;
   return durationMs > (units / MIN_RATE_PER_SEC) * 1000;
+}
+
+/** 파일 안에서 녹화가 끊긴 시간의 합. 블록 헤더의 시간 범위로 가른다. */
+const INNER_GAP_MIN_MS = 10_000;
+
+function innerGapOf(blocks: { startMs: number; endMs: number }[]): number {
+  let total = 0;
+  for (let i = 1; i < blocks.length; i++) {
+    const prevEnd = blocks[i - 1].endMs;
+    const curStart = blocks[i].startMs;
+    if (!Number.isFinite(prevEnd) || !Number.isFinite(curStart)) continue;
+    const gap = curStart - prevEnd;
+    if (gap > INNER_GAP_MIN_MS) total += gap;
+  }
+  return Math.round(total);
+}
+
+/** 훑어볼 표본 크기와 지점 수 — 파일 전체를 읽지 않고 "비었는지"만 가른다 */
+const BLANK_SAMPLE = 32 << 10;
+const BLANK_POINTS = 5;
+
+/**
+ * 앞머리(SCAN_LIMIT)가 0인 건 이미 확인됐다. 그 뒤도 0인지 떠서 본다.
+ * 파일 전체를 읽을 수는 없으므로 여기는 표본이다.
+ */
+async function looksBlank(src: ByteSource): Promise<boolean> {
+  if (src.size <= SCAN_LIMIT) return true;
+  return isZeroRun(src, SCAN_LIMIT, src.size);
+}
+
+/**
+ * [from, to) 가 (표본 기준) 전부 0인가.
+ *
+ * 앞머리만 보면 안 된다. 정렬 패딩 뒤에 진짜 블록이 이어지는 파일에서
+ * 앞 32KB만 보고 "빈 꼬리"라고 단정하면 **못 읽은 블록을 없는 셈** 치게 된다.
+ * 범위를 나눠 여러 곳을 떠 본다.
+ */
+async function isZeroRun(src: ByteSource, from: number, to: number): Promise<boolean> {
+  const span = to - from;
+  if (span <= 0) return true;
+  const points = Math.min(BLANK_POINTS, Math.max(1, Math.ceil(span / BLANK_SAMPLE)));
+  // **끝을 반드시 본다.** 정렬 패딩 뒤 맨 끝에 블록이 붙어 있는 파일이 있어,
+  // 고르게만 뜨면 그 블록을 놓치고 "빈 꼬리"로 단정하게 된다.
+  const last = Math.max(from, to - BLANK_SAMPLE);
+  for (let i = 0; i < points; i++) {
+    const at = points === 1 ? from : from + Math.round(((last - from) * i) / (points - 1));
+    const length = Math.min(BLANK_SAMPLE, to - at);
+    if (length <= 0) continue;
+    const chunk = await src.read(at, length);
+    for (let k = 0; k < chunk.length; k++) if (chunk[k] !== 0) return false;
+  }
+  return true;
 }

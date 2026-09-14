@@ -192,6 +192,7 @@ function segmentRow(s: SegmentInfo, index: number, activeIndex: number): string 
   const flags: string[] = [];
   if (s.timeSource !== 'header') flags.push(`시각출처 ${TIME_SOURCE_LABEL[s.timeSource]}`);
   if (s.endEstimated) flags.push('길이 추정');
+  if ((s.innerGapMs ?? 0) > 0) flags.push(`파일 안 공백 ${formatDurationKo(s.innerGapMs! / 1000)}`);
   if (Math.abs(s.headerShiftMs) >= 500) {
     flags.push(`헤더 시각 ${(s.headerShiftMs / 1000).toFixed(1)}초 어긋남`);
   }

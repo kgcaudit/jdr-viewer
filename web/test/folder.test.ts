@@ -105,6 +105,78 @@ describe('블록 체인이 끊긴 파일', () => {
   });
 });
 
+describe('기기가 미리 잡아 둔 파일', () => {
+  it('0으로만 찬 파일은 고장이 아니라 "빈 파일"이다', async () => {
+    // 실기기 카드: event 폴더 166개가 전부 70MB 0으로 채워진 예약 자리였고
+    // 수정시각도 전부 카드 포맷 날짜였다. 이걸 "읽지 못한 파일"로 세면
+    // 사용자는 증거가 깨진 줄 안다.
+    const bytes = new Uint8Array(2 << 20);
+    const seg = await probe(bytes as Uint8Array<ArrayBuffer>, '00000000.jdr', 'event/00000000.jdr');
+    expect(seg.blank).toBe(true);
+    expect(seg.error).toMatch(/아직 녹화되지 않은/);
+  });
+
+  it('내용이 있는데 못 읽은 파일은 빈 파일과 구분한다', async () => {
+    const bytes = new Uint8Array(2 << 20);
+    bytes.fill(0xab, 1 << 20, (1 << 20) + 4096); // 뭔가 쓰여 있다
+    const seg = await probe(bytes as Uint8Array<ArrayBuffer>, 'x.jdr');
+    expect(seg.blank).toBeFalsy();
+    expect(seg.error).toMatch(/JEB1/);
+  });
+
+  it('쓰다 만 꼬리(0)는 "덜 읽음"이 아니다', async () => {
+    // 파일은 70MB로 미리 잡히고 녹화는 일찍 끝난다. 남은 꼬리가 0이면
+    // 못 읽은 게 아니라 안 쓴 것이다 — 멀쩡한 파일 수백 개가 경고로 뜨면 안 된다.
+    const base = makeFile(T(8, 16, 0), 4);
+    const bytes = new Uint8Array(base.length + (1 << 20));
+    bytes.set(base, 0);
+    const seg = await probe(bytes as Uint8Array<ArrayBuffer>, 'x.jdr');
+    expect(seg.error).toBeUndefined();
+    expect(seg.coveredBytes).toBe(bytes.length);
+  });
+});
+
+describe('파일 안에서 녹화가 끊길 때', () => {
+  it('블록 사이에 몇 분이 비면 그만큼을 "파일 안 공백"으로 센다', async () => {
+    // 실기기 data/00000438.jdr: 블록 6개짜리 한 파일이 22:55→23:16을 덮어
+    // 20분 주차가 녹화된 것처럼 잡혔다.
+    const a = makeFile(T(22, 55, 48), 4);
+    const b = makeFile(T(23, 0, 48), 4, a.length);
+    const bytes = new Uint8Array(a.length + b.length);
+    bytes.set(a, 0);
+    bytes.set(b, a.length);
+    const seg = await probe(bytes as Uint8Array<ArrayBuffer>, 'x.jdr');
+
+    expect(seg.blockOffsets).toHaveLength(2);
+    expect(seg.innerGapMs! / 1000).toBeGreaterThan(290); // 5분 넘게
+  });
+
+  it('그 공백은 "실제 영상"에서 빠진다', async () => {
+    const a = makeFile(T(22, 55, 48), 4);
+    const b = makeFile(T(23, 0, 48), 4, a.length);
+    const bytes = new Uint8Array(a.length + b.length);
+    bytes.set(a, 0);
+    bytes.set(b, a.length);
+    const seg = await probe(bytes as Uint8Array<ArrayBuffer>, 'x.jdr');
+
+    const lib = buildLibrary([seg]);
+    expect(lib.innerGapMs).toBe(seg.innerGapMs);
+    // 벽시계로는 20분이 넘지만 실제 영상은 몇 초뿐이다
+    expect(lib.spanMs).toBeGreaterThan(290_000);
+    expect(lib.coveredMs).toBeLessThan(60_000);
+  });
+
+  it('이어 쓴 파일은 공백으로 세지 않는다', async () => {
+    const a = makeFile(T(8, 16, 0), 4);
+    const b = makeFile(T(8, 16, 4), 4, a.length);
+    const bytes = new Uint8Array(a.length + b.length);
+    bytes.set(a, 0);
+    bytes.set(b, a.length);
+    const seg = await probe(bytes as Uint8Array<ArrayBuffer>, 'x.jdr');
+    expect(seg.innerGapMs).toBe(0);
+  });
+});
+
 describe('세그먼트 프로브', () => {
   it('헤더 512바이트만으로 시간 범위와 구성을 읽는다', async () => {
     const bytes = makeFile(T(8, 16, 0), 4);

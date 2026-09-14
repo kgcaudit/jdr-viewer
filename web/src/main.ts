@@ -301,6 +301,7 @@ async function openFolder(all: File[]): Promise<void> {
   const stats: LoadStats = {
     total: jdrFiles.length, fromIndexFile: 0, fromCache: 0, probed: 0,
     indexError, hadIndexFile: !!indexFile && !indexError, missingFromIndex: 0,
+    unreadable: 0, blank: 0,
   };
 
   const segments: SegmentInfo[] = [];
@@ -346,6 +347,7 @@ async function openFolder(all: File[]): Promise<void> {
   }
   setBar(100);
   void probeCache.putMany(toStore);
+  Object.assign(stats, countDropped(segments));
 
   if (segments.every((s) => s.error)) {
     showError(`${num(segments.length)}개 파일을 모두 읽지 못했습니다. 지원하지 않는 JDR 변형일 수 있습니다.`);
@@ -369,6 +371,24 @@ async function openFolder(all: File[]): Promise<void> {
   }
   drawCalendar();
   showView('calendar');
+}
+
+/**
+ * 타임라인에 오르지 못한 파일을 센다.
+ *
+ * 둘을 갈라야 한다. 기기가 미리 잡아 두기만 한 **빈 파일**은 정상이고,
+ * 내용이 있는데 **열지 못한 파일**은 확인이 필요하다. 섞어 놓으면 사용자는
+ * 멀쩡한 카드를 고장난 줄 안다.
+ */
+function countDropped(segments: SegmentInfo[]): { unreadable: number; blank: number } {
+  let unreadable = 0;
+  let blank = 0;
+  for (const s of segments) {
+    if (!s.error) continue;
+    if (s.blank) blank++;
+    else unreadable++;
+  }
+  return { unreadable, blank };
 }
 
 function buildFolderStats(segments: SegmentInfo[]): FolderStat[] {
@@ -486,6 +506,7 @@ async function rebuildIndex(): Promise<void> {
   fs.stats = {
     total: rebuilt.length, fromIndexFile: 0, fromCache: 0, probed: rebuilt.length,
     hadIndexFile: false, missingFromIndex: 0, rebuilt: true,
+    ...countDropped(rebuilt),
   };
 
   drawCalendar();

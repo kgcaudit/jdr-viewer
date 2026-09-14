@@ -23,22 +23,23 @@ export const INDEX_FORMAT = 'jdr-viewer-index';
  * 5: 종료 시각도 마지막 패킷 기준 — 헤더에 다음 시동 시각이 적혀 주차 몇
  *    시간이 "녹화됨"으로 덮이던 것을 고쳤다.
  * 6: 구간의 끝은 **영상·음성이 끝난 곳**이다. 시동을 걸며 꼬리에 덧붙은
- *    GPS·센서 패킷이 주차 시간을 덮던 것을 고쳤다. 옛 값에는 그 길이가
- *    굳어 있으므로 다시 읽는다.
+ *    GPS·센서 패킷이 주차 시간을 덮던 것을 고쳤다.
+ * 7: 아직 녹화되지 않은 빈 파일(blank)과 **파일 안의 공백**(innerGap)을
+ *    따로 센다. 옛 인덱스에는 그 구분이 없다.
  */
-export const INDEX_VERSION = 6;
+export const INDEX_VERSION = 7;
 
 /** 행을 배열로 저장한다 — 키 이름이 828번 반복되면 파일이 3배가 된다 */
 const FIELDS = [
   'path', 'size', 'mtime', 'start', 'end', 'packets',
   'ch0', 'ch1', 'gps', 'sensor', 'blocks', 'timeSource', 'endEstimated', 'headerShift', 'error',
-  'covered',
+  'covered', 'blank', 'innerGap',
 ] as const;
 
 type Row = [
   string, number, number, number, number, number,
   number, number, number, number, number[], string, number, number, string | null,
-  number,
+  number, number, number,
 ];
 
 export interface IndexFile {
@@ -64,7 +65,7 @@ export function buildIndexFile(items: { seg: SegmentInfo; file: File }[]): Index
     seg.startMs, seg.endMs, seg.packetCount,
     seg.ch0Count, seg.ch1Count, seg.gpsCount, seg.sensorCount,
     seg.blockOffsets, seg.timeSource, seg.endEstimated ? 1 : 0, seg.headerShiftMs, seg.error ?? null,
-    seg.coveredBytes ?? 0,
+    seg.coveredBytes ?? 0, seg.blank ? 1 : 0, seg.innerGapMs ?? 0,
   ]);
   return {
     format: INDEX_FORMAT,
@@ -132,6 +133,8 @@ export function parseIndexFile(text: string): Map<string, IndexEntry> {
         headerShiftMs: Number(r[13]) || 0,
         error: r[14] ?? undefined,
         coveredBytes: Number(r[15]) || 0,
+        blank: r[16] === 1,
+        innerGapMs: Number(r[17]) || 0,
       },
     });
   }
