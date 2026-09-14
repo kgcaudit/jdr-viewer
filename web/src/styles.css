@@ -68,8 +68,14 @@
 * { box-sizing: border-box; }
 /* .app { display: grid } 같은 클래스 규칙이 [hidden]을 덮어써서 숨긴 화면이 보이던 문제 */
 [hidden] { display: none !important; }
-html, body { height: 100%; }
+html { height: 100%; }
+/* 앱 셸 — 페이지는 스크롤하지 않고, 안쪽 영역이 각자 스크롤한다.
+   상단바 높이를 px로 추측하면 기기마다 어긋나므로 flex로 나눈다. */
 body {
+  height: var(--vh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   margin:0;
   background: var(--bg);
   color: var(--text);
@@ -82,7 +88,7 @@ body {
   display: flex; align-items: center; justify-content: space-between; gap:var(--s-3);
   padding:10px max(var(--s-3), env(safe-area-inset-left)) 10px max(var(--s-3), env(safe-area-inset-right));
   background: var(--surface); border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; z-index: 20;
+  flex: 0 0 auto; z-index: 20;
 }
 .brand { display: flex; align-items: center; gap:var(--s-2); font-weight: 650; letter-spacing: -0.01em; }
 .brand-mark { color: var(--accent); }
@@ -119,7 +125,16 @@ body {
 .select { font: inherit; padding:7px 6px; min-height: var(--tap); border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
-.view { padding:max(var(--s-4), env(safe-area-inset-top)) var(--s-4) var(--s-5); }
+/* 화면 하나가 남은 높이를 전부 차지하고, **자기 안에서** 스크롤한다 */
+.view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding:var(--s-4) var(--s-4) var(--s-5);
+}
+/* 본 화면만은 스스로 스크롤하지 않는다 — 무대는 고정, 패널만 움직인다 */
+.view.app { overflow: hidden; padding:var(--s-3) var(--s-4) 0; }
 
 /* ── 빈 화면 ────────────────────────── */
 .dropzone {
@@ -143,23 +158,114 @@ body {
 .error-box h2 { margin-top:0; font-size: 18px; }
 #error-message { color: var(--danger); }
 
-/* ── 본 화면 레이아웃 ───────────────── */
-.app { display: grid; gap:var(--s-4); grid-template-columns: 1fr; align-items: start; }
-@media (min-width: 1000px) {
-  .app { grid-template-columns: minmax(0, 1.35fr) minmax(380px, 1fr); }
-  /* 패널이 길어져 왼쪽에 거대한 빈 공간이 생기지 않도록, 화면 높이에 맞추고 안에서 스크롤한다 */
-  .panel {
-    position: sticky; top: 62px;
-    height: calc(100dvh - 84px);
-    display: flex; flex-direction: column;
-  }
-  .tabs { flex: 0 0 auto; }
-  .tab-panels { flex: 1 1 auto; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+/* ── 본 화면 레이아웃: 앱 셸 ─────────────────────────────────
+ *
+ * 한 줄기 스크롤이 문제였다. 내보내기 구간을 고르는데 재생 위치가 화면
+ * 밖으로 나가서, 벽시계를 한 벌 더 그려 막아야 했다. 증상을 가린 것이지
+ * 원인을 고친 게 아니다.
+ *
+ * 그래서 **무대(영상·컨트롤·벽시계·띠)는 고정하고 패널만 스크롤한다.**
+ * 탭은 엄지가 닿는 아래로 내린다. 어느 탭에서 무엇을 하든 지금 몇 시
+ * 어디를 보고 있는지가 눈앞에 남는다.
+ */
+.app {
+  display: flex;
+  flex-direction: column;
+  gap:var(--s-3);
+  /* 높이를 직접 주지 않는다. 이 요소 자체가 body의 flex 항목이라
+     `height:100%`는 **body 전체 높이**를 잡아 상단바만큼 넘쳐 흘렀다
+     (탭바가 화면 밖으로 104px 밀려났다). 남은 공간은 flex가 정해 준다. */
+  min-height: 0;
 }
-.stage, .panel { min-width: 0; }
+/* 무대는 **줄어들지 않는다.** 여기 있는 것들(벽시계·컨트롤·띠)이 항상
+   보이라고 만든 구조이므로, 공간이 모자라면 양보하는 쪽은 패널이다.
+   패널은 안에서 스크롤할 수 있으니 얼마든지 좁아져도 된다.
+   (flex-shrink를 켜 뒀더니 패널의 긴 내용이 무대를 216px로 눌러
+   컨트롤과 띠가 영상 아래로 잘려 나갔다.) */
+.stage { flex: 0 0 auto; min-width: 0; display: flex; flex-direction: column; }
+/* 대신 **영상이 남은 공간을 다 먹지 못하게** 묶는다. 세로가 모자라면
+   먼저 줄어드는 건 영상이고, 컨트롤과 띠는 끝까지 자리를 지킨다. */
+.video-cell { max-height: 30svh; }
+.video-cell canvas { height: 100%; max-height: 30svh; }
+.panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 탭을 아래로 — DOM 순서는 그대로 두고 보이는 자리만 바꾼다 */
+  margin-bottom: var(--safe-b);
+}
+.tabs { order: 2; flex: 0 0 auto; border-bottom: 0; border-top: 1px solid var(--border); }
+.tab-panels { order: 1; flex: 1 1 auto; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.tab.is-active { border-bottom-color: transparent; border-top: 2px solid var(--accent); margin-top: -1px; }
 
+/* 넓은 화면 = 데스크톱 **또는 눕힌 폰**. 폭만 보면 844×390이 세로 배치로
+   떨어져 영상이 화면을 다 먹는다. 가로일 때는 폭 기준을 낮춰 같이 태운다. */
+@media (min-width: 900px), (orientation: landscape) and (min-width: 560px) {
+  .app { flex-direction: row; align-items: stretch; gap:var(--s-4); }
+  .stage { flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; }
+  .panel { flex: 0 1 420px; margin-bottom: 0; }
+  .tabs { order: 0; border-top: 0; border-bottom: 1px solid var(--border); }
+  .tab-panels { order: 1; }
+  .tab.is-active { border-top: 0; margin-top: 0; border-bottom-color: var(--accent); }
+  /* 영상이 남은 높이를 차지하고, 컨트롤·띠는 아래에 붙는다 */
+  .video-grid { flex: 1 1 auto; min-height: 120px; }
+  .video-cell { max-height: none; min-height: 0; }
+  .video-cell canvas { max-height: none; height: 100%; }
+  .controls, .note-row, .session-chips, .strip, .recorded-time { flex: 0 0 auto; }
+}
+
+/* ── 영상 배치 ───────────────────────────────────────────────
+ *
+ * 좁은 화면에서 16:9 두 칸을 쌓으면 390px 폭에서만 440px다. 화면의 절반을
+ * 넘게 쓰는데 정작 후방은 대개 곁눈질 대상이고, 그 높이 때문에 아래쪽
+ * 탭바가 화면 밖으로 밀려났다.
+ *
+ * 그래서 **전방을 꽉 채우고 후방은 모서리에 겹친다.** 탭하면 서로 바뀐다.
+ * 세로 공간이 440 → 220으로 줄어 패널이 그만큼 살아난다.
+ */
 .video-grid { display: grid; gap:10px; grid-template-columns: 1fr; }
-@media (min-width: 620px) { .video-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 899px) and (orientation: portrait), (max-width: 559px) {
+  .video-grid { position: relative; gap:0; }
+  /* 앞에 온 쪽이 크게, 나머지가 작게. is-swapped면 순서만 뒤집는다. */
+  .video-grid > .video-cell:first-child { grid-area: 1 / 1; }
+  .video-grid > .video-cell:last-child {
+    position: absolute;
+    right: var(--s-2);
+    bottom: var(--s-2);
+    width: 34%;
+    min-width: 108px;
+    z-index: 2;
+    border-radius: var(--s-2);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+  }
+  .video-grid.is-swapped > .video-cell:first-child {
+    position: absolute;
+    right: var(--s-2);
+    bottom: var(--s-2);
+    width: 34%;
+    min-width: 108px;
+    z-index: 2;
+    border-radius: var(--s-2);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+  }
+  .video-grid.is-swapped > .video-cell:last-child {
+    position: static;
+    width: auto;
+    grid-area: 1 / 1;
+    box-shadow: none;
+    border-radius: var(--radius);
+  }
+  /* 작은 쪽의 라벨은 자리를 많이 먹으므로 줄인다 */
+  .video-cell[style], .video-grid > .video-cell:last-child .cell-note { display: none; }
+  .video-grid.is-swapped > .video-cell:first-child .cell-note { display: none; }
+}
+@media (min-width: 900px), (orientation: landscape) and (min-width: 560px) {
+  .video-grid { grid-template-columns: 1fr 1fr; }
+}
 .video-cell { margin:0; background: #000; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); position: relative; }
 .video-cell canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
 /* 기기 OSD(날짜·속도·IROAD)가 영상 하단에 찍히므로 라벨은 우측 상단에 둔다 */
@@ -179,27 +285,33 @@ body {
 }
 
 .controls {
-  display: flex; align-items: center; gap:6px; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap:6px;
   margin-top:var(--s-3); padding:var(--s-2) 10px; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
 }
+.ctl-row { display: flex; align-items: center; gap:6px; min-width: 0; }
+/* 줄바꿈은 두지 않는다. 좁아지면 간격을 조일 뿐, 줄이 늘어나면 그만큼
+   띠가 화면 밖으로 밀린다 (눕힌 폰에서 실제로 그랬다). */
+.ctl-transport { flex-wrap: nowrap; }
+/* 이동 버튼과 설정 버튼 사이를 벌려 손가락이 헷갈리지 않게 한다 */
+.ctl-gap { flex: 1 1 auto; min-width: var(--s-2); }
+.ctl-scrub { gap:var(--s-3); }
 /* 막대는 얇아 보이되 잡히는 높이는 손가락 규격을 지킨다 */
 .seek { flex: 1 1 120px; min-width: 90px; accent-color: var(--accent); height: var(--tap); }
 .time {
   font-variant-numeric: tabular-nums; font-size: var(--t-micro); color: var(--muted);
-  white-space: nowrap; flex: 0 0 auto;
+  white-space: nowrap; flex: 0 0 auto; line-height: var(--lh-tight);
 }
 /* 좁아지면 재생 컨트롤 / 슬라이더 / 설정 세 덩어리로 줄바꿈된다 */
 @media (max-width: 620px) {
-  /* 재생 컨트롤 한 줄 + 슬라이더 한 줄로 떨어지게 폭을 조인다.
-     **좁다고 손가락이 작아지지는 않는다** — 폭만 줄이고 44px는 지킨다. */
+  /* **좁다고 손가락이 작아지지는 않는다** — 폭만 줄이고 44px는 지킨다. */
   .controls { gap:5px; padding:var(--s-2); }
+  .ctl-row { gap:var(--s-1); }
   .controls .btn-icon,
   .controls .btn-skip,
-  .controls .btn-play { min-width: var(--tap); padding:7px var(--s-1); }
-  .controls .select { min-width: 58px; padding:7px var(--s-1); }
-  .seek { flex: 1 1 100%; order: 10; }
-  .time { order: 11; }
+  .controls .btn-play { min-width: var(--tap); padding:7px 5px; }
+  .controls .select { min-width: 56px; padding:7px 2px; }
+  .ctl-gap { min-width: 0; }
 }
 .recorded-time { margin:var(--s-2) 2px 0; font-size: var(--t-label); color: var(--muted); font-variant-numeric: tabular-nums; }
 
@@ -651,4 +763,19 @@ body {
   .chip-btn { min-height: 36px; }
   .btn-sm { min-height: 32px; }
   .wake-chip { min-height: 30px; }
+}
+
+/* ── 눕힌 폰처럼 세로가 짧은 화면 ────────────────────────────
+   390px 높이에 컨트롤·출처·운행칩·띠·기록시각을 다 넣으면 정작 영상이
+   15px만 남는다. 영상을 보려고 눕힌 건데 본말이 뒤집힌다.
+   **영상·컨트롤·띠만 남기고** 나머지는 접는다 (패널에서 볼 수 있다). */
+@media (orientation: landscape) and (max-height: 520px) {
+  .note-row, .session-chips, .recorded-time { display: none; }
+  .time-clock { font-size: 19px; }
+  .controls { padding:6px var(--s-2); }
+  .strip { margin-top: 6px; }
+  /* 버튼 여덟 개가 한 줄에 들어가도록 간격만 조인다 (크기는 44px 유지) */
+  .ctl-transport { gap: 3px; }
+  .ctl-gap { display: none; }
+  .controls .select { min-width: 50px; padding:7px 2px; }
 }

@@ -961,3 +961,56 @@ test('탐색 막대 위치와 시간 표시가 어긋나지 않는다', async ({
     expect(value / nowMax).toBeCloseTo(labelMs / nowMax, 1);
   }
 });
+
+test('좁은 화면에서 후방 영상을 탭하면 전방과 자리가 바뀐다', async ({ page }) => {
+  // 16:9 두 칸을 쌓으면 390px 폭에서 440px다. 화면 절반을 넘게 쓰는 바람에
+  // 아래쪽 탭바가 화면 밖으로 밀려났다. 전방을 크게, 후방은 모서리에 겹친다.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openMorningSession(page);
+
+  const grid = page.locator('#video-grid');
+  const rear = grid.locator('.video-cell').nth(1);
+  const front = grid.locator('.video-cell').nth(0);
+
+  const rearBox = await rear.boundingBox();
+  const frontBox = await front.boundingBox();
+  expect(rearBox!.width, '후방이 작게 겹쳐 있어야 한다').toBeLessThan(frontBox!.width / 2);
+
+  await rear.click({ position: { x: 10, y: 10 } });
+  await expect(grid).toHaveClass(/is-swapped/);
+
+  const swappedFront = await front.boundingBox();
+  const swappedRear = await rear.boundingBox();
+  expect(swappedFront!.width, '이제 전방이 작아진다').toBeLessThan(swappedRear!.width / 2);
+});
+
+test('앱 셸 — 패널을 스크롤해도 벽시계와 띠가 화면에 남는다', async ({ page }) => {
+  // 개편 전에는 한 줄기 스크롤이라 내보내기 칸까지 내려오면 재생 위치가
+  // 화면 밖이었다. 그걸 막으려고 벽시계를 한 벌 더 그려야 했다.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openMorningSession(page);
+  await page.locator('[data-tab="export"]').click();
+  await page.locator('.tab-panels').evaluate((e) => { e.scrollTop = 600; });
+  await page.waitForTimeout(150);
+
+  const state = await page.evaluate(() => {
+    const inView = (el: Element | null): boolean => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0;
+    };
+    const tabs = document.querySelector('.tabs')!.getBoundingClientRect();
+    return {
+      clock: inView(document.getElementById('time-clock')),
+      strip: inView(document.querySelector('.strip-track')),
+      play: inView(document.getElementById('btn-play')),
+      tabsGap: Math.round(window.innerHeight - tabs.bottom),
+      pageScroll: document.body.scrollHeight - document.body.clientHeight,
+    };
+  });
+  expect(state.clock, '벽시계가 보여야 한다').toBe(true);
+  expect(state.strip, '구간 띠가 보여야 한다').toBe(true);
+  expect(state.play, '재생 버튼이 보여야 한다').toBe(true);
+  expect(state.tabsGap, '탭바가 화면 아래에 붙어 있어야 한다').toBeLessThanOrEqual(2);
+  expect(state.pageScroll, '페이지 자체는 스크롤하지 않는다').toBe(0);
+});

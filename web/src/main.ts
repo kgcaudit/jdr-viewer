@@ -155,6 +155,23 @@ folderInput.addEventListener('change', () => {
   folderInput.value = '';
 });
 
+/**
+ * 좁은 화면에서는 전방을 크게, 후방을 모서리에 겹쳐 둔다. 작은 쪽을 탭하면
+ * 서로 바뀐다 — 후방을 자세히 봐야 할 때가 있는데 그때마다 폰을 눕히라고
+ * 할 수는 없다. 자리만 바뀌고 재생은 건드리지 않는다.
+ */
+$('video-grid').addEventListener('click', (e) => {
+  const grid = $('video-grid');
+  // 넓은 화면에서는 둘 다 크게 나오므로 바꿀 것이 없다
+  if (!getComputedStyle(grid.lastElementChild as Element).position.includes('absolute')
+      && !grid.classList.contains('is-swapped')) return;
+  const cell = (e.target as HTMLElement).closest('.video-cell');
+  if (!cell) return;
+  const small = grid.classList.contains('is-swapped') ? grid.firstElementChild : grid.lastElementChild;
+  if (cell !== small) return;
+  grid.classList.toggle('is-swapped');
+});
+
 const dropzone = $('dropzone');
 for (const type of ['dragenter', 'dragover']) {
   dropzone.addEventListener(type, (e) => { e.preventDefault(); dropzone.classList.add('is-over'); });
@@ -749,7 +766,9 @@ function updateLabels(absMs: number, segIndex: number): void {
   const fix = map?.syncTo(absMs) ?? null;
   charts?.syncTo((absMs - s.lib.startMs) / 1000);
 
-  const parts = [`기록 시각 ${formatRecordedTime(absMs)}`];
+  // 벽시계가 이미 크게 떠 있으므로 라벨은 군더더기다. 밀리초까지 적힌
+  // 정확한 값만 남긴다 — 감사에서는 이 값이 증거다.
+  const parts = [formatRecordedTime(absMs)];
   if (fix) parts.push(`${fix.speed.toFixed(1)} km/h (추정)`, `${fix.lat.toFixed(6)}, ${fix.lon.toFixed(6)}`);
   $('recorded-time').textContent = parts.join('  ·  ');
 }
