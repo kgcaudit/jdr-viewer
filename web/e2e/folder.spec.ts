@@ -1254,3 +1254,54 @@ test('접은 상태를 기억한다', async ({ page }) => {
   await page.locator('#btn-fold-stage').click();
   await expect(page.locator('body')).not.toHaveClass(/is-stage-folded/);
 });
+
+
+test('휴대폰에서는 전방이 폭을 꽉 채운다 — 좌우 검은 여백이 없다', async ({ page }) => {
+  // 실기(폴드 커버)에서 영상 칸이 2.6:1로 납작해지고 그림 좌우에 검은 여백이
+  // 남았다. 주소창까지 낀 svh(약 575)에 `--vh - 430` 예산이 걸려 칸 높이가
+  // 145px로 잡히고, 그만큼 폭도 270px로 줄었기 때문이다(폭은 384가 남는데).
+  // 한 줄기로 스크롤하는 지금은 영상이 아랫줄 몫을 낼 이유가 없다.
+  for (const height of [575, 915]) {
+    await page.setViewportSize({ width: 412, height });
+    await openMorningSession(page);
+    const box = await page.evaluate(() => {
+      const c = document.getElementById('canvas-0') as HTMLCanvasElement;
+      const cell = c.closest('.video-cell')!;
+      const r = c.getBoundingClientRect();
+      const cr = cell.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), cellW: Math.round(cr.width) };
+    });
+    // 칸을 꽉 채워야 좌우에 검은 띠가 남지 않는다 (테두리 1px씩은 뺀다)
+    expect(box.cellW - box.w, `${height}: 좌우 검은 여백`).toBeLessThanOrEqual(2);
+    // 상자 자체가 16:9여야 위아래로도 여백이 없다
+    expect(box.w / box.h).toBeCloseTo(16 / 9, 1);
+  }
+});
+
+test('영상 전환 딱지의 글자가 보인다 — 빈 알약이 아니다', async ({ page }) => {
+  // button은 색과 테두리를 물려받지 않아 UA 기본값(검은 buttontext,
+  // 2px outset)이 남았다. 반투명 검정 배경 위 검은 글자 = 실기에서
+  // 글자 없는 빈 알약으로 보였다.
+  await page.setViewportSize({ width: 412, height: 915 });
+  await openMorningSession(page);
+  const chip = await page.evaluate(() => {
+    const el = document.querySelector('.chip-swap')!;
+    const cs = getComputedStyle(el);
+    const mk = document.querySelector('.chip-swap-mark')!.getBoundingClientRect();
+    return { color: cs.color, border: cs.borderTopWidth, text: el.textContent?.trim(), markW: mk.width };
+  });
+  expect(chip.text, '어느 쪽인지 글자로 알려 준다').toContain('전방');
+  expect(chip.color, '영상 위 흰 글자').toBe('rgb(255, 255, 255)');
+  expect(chip.border, 'UA 기본 테두리가 남으면 안 된다').toBe('0px');
+  // 전환 표식(⇄)이 곧 "이건 버튼이다"라는 신호다. 컨테이너 질의를 기본값
+  // 앞에 두는 바람에 폭이 0이어서, 실기에서 전환 버튼인 줄 알 수가 없었다.
+  expect(chip.markW, '좁은 화면에서는 전환 표식이 보인다').toBeGreaterThan(0);
+
+  // 두 대가 나란히 보이는 폭에서는 바꿀 것이 없으니 표식도 없다
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(100);
+  const wide = await page.evaluate(() =>
+    document.querySelector('.chip-swap-mark')!.getBoundingClientRect().width);
+  expect(wide, '넓은 화면에는 전환 표식이 없다').toBe(0);
+});
+

@@ -279,7 +279,6 @@ body {
   .video-grid > .video-cell:last-child { display: none; }
   .video-grid.is-rear > .video-cell:first-child { display: none; }
   .video-grid.is-rear > .video-cell:last-child { display: block; }
-  .chip-swap-mark { display: inline; }
 }
 
 @container stage (min-width: 520px) {
@@ -907,6 +906,12 @@ body {
 .chip-swap {
   pointer-events: auto;
   cursor: pointer;
+  /* 버튼은 글자색과 테두리를 **물려받지 않는다** — UA 기본값(buttontext,
+     2px outset)이 남는다. 그래서 이 딱지가 실기에서 검은 글자에 회색
+     테두리만 남은 **빈 알약**으로 보였다. 영상 위 글자는 figcaption의
+     흰색을 따라야 한다. */
+  color: inherit;
+  border: 0;
   font: inherit;
   display: inline-flex;
   align-items: center;
@@ -914,7 +919,14 @@ body {
   min-height: var(--tap);
 }
 /* 나란히 보이는 넓은 화면에서는 바꿀 것이 없다 — 표식도 숨긴다 */
-.chip-swap-mark { display: none; font-size: var(--t-micro); opacity: .8; }
+.chip-swap-mark { display: none; opacity: .85; }
+/* 한 번에 한 대만 보이는 폭에서는 **이 표식이 곧 전환 버튼이라는 신호**다.
+   이 규칙은 반드시 위 기본값 **뒤에** 와야 한다 — 컨테이너 질의도 매체
+   질의처럼 우선순위를 올리지 않아서, 앞에 두었더니 뒤의 display:none 이
+   이겨 표식 폭이 0이었다. 실기에서 전환 버튼인 줄 알아볼 수가 없었다. */
+@container stage (max-width: 519px) {
+  .chip-swap-mark { display: inline; }
+}
 
 /* ── 좁은 화면: 한 줄기 스크롤 + 위에 붙는 도크 ──────────────────
  *
@@ -958,6 +970,22 @@ body {
      **overflow: hidden 을 반드시 풀어야 한다** — 부모가 overflow를 가지면
      그 안의 sticky는 부모 안에 갇혀 붙지 않는다 (탭이 그래서 안 붙었다). */
   .panel { display: block; min-height: 0; margin-bottom: 0; overflow: visible; }
+
+  /* 영상은 **폭으로만** 정해진다.
+     --video-h의 `--vh - 430`은 컨트롤·띠·패널까지 한 화면에 욱여넣던
+     시절의 예산이다. 이제 좁은 화면은 한 줄기로 스크롤하므로 영상이
+     아랫줄 몫을 대신 낼 이유가 없다. 그런데 예산이 그대로 남아 실기에서
+     주소창까지 낀 svh로 145px이 잡혔고, 폭은 384가 남는데 칸을 270으로
+     줄여 **좌우에 검은 여백**이 생겼다(2.6:1 상자 안의 16:9 그림).
+     여기서는 예산이 아니라 **상한**만 둔다. 세로로 든 폰에서는 절대
+     걸리지 않고(384폭이면 216이 필요한데 상한은 화면의 56%), 눕힌 폰처럼
+     정말 납작할 때만 걸려 여백을 막는다. */
+  .stage { --video-h: 56svh; }
+  /* 그리고 화면 끝까지 쓴다. 좌우 16px씩 양보하면 16:9라 세로도 18px을
+     같이 잃는다 — 폰에서 영상은 카드가 아니라 띠다. */
+  .video-band { margin-inline: calc(var(--s-4) * -1); }
+  .video-cell { border-radius: 0; border-left-width: 0; border-right-width: 0; }
+
   .tabs {
     order: 0;
     position: sticky;
