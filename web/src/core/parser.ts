@@ -309,6 +309,15 @@ export async function parseJdr(
   const tagCounts: Record<string, number> = {};
   let firstTimeMs = Infinity;
   let lastTimeMs = -Infinity;
+  /**
+   * 영상·음성만 본 마지막 시각.
+   *
+   * 구간의 길이를 정하는 건 담긴 **내용**이지 파일에 마지막으로 적힌
+   * 무언가가 아니다. 기기는 시동을 걸 때 직전 파일 꼬리에 GPS·센서 패킷을
+   * 덧붙이기도 하는데, 그걸 끝으로 삼으면 주차한 몇 시간이 통째로
+   * "녹화된 구간"이 된다.
+   */
+  let contentEndMs = -Infinity;
   let audioPackets = 0;
   let audioBytes = 0;
   const videoTimes: number[][] = [[], []];
@@ -339,6 +348,9 @@ export async function parseJdr(
     } else if (kind === TagKind.Audio) {
       audioPackets++;
       audioBytes += packets.size[i];
+    }
+    if ((kind === TagKind.Video || kind === TagKind.Audio) && Number.isFinite(t) && t > contentEndMs) {
+      contentEndMs = t;
     }
   }
 
@@ -391,6 +403,7 @@ export async function parseJdr(
     tagCounts,
     firstTimeMs: Number.isFinite(firstTimeMs) ? firstTimeMs : NaN,
     lastTimeMs: Number.isFinite(lastTimeMs) ? lastTimeMs : NaN,
+    contentEndMs: Number.isFinite(contentEndMs) ? contentEndMs : NaN,
     durationSec: Number.isFinite(firstTimeMs) && Number.isFinite(lastTimeMs) ? (lastTimeMs - firstTimeMs) / 1000 : 0,
     indexMismatches: blocks.reduce((s, b) => s + b.indexMismatches, 0),
     video,

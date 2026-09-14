@@ -243,8 +243,9 @@ async function openSingleFile(file: File): Promise<void> {
     if (seg.error || !Number.isFinite(seg.startMs)) {
       seg.error = undefined;
       seg.startMs = doc.firstTimeMs;
-      seg.endMs = doc.lastTimeMs;
-      seg.durationMs = doc.durationSec * 1000;
+      // 꼬리에 덧붙은 GPS·센서 패킷이 아니라 영상·음성이 끝난 곳이 기준이다
+      seg.endMs = Number.isFinite(doc.contentEndMs) ? doc.contentEndMs : doc.lastTimeMs;
+      seg.durationMs = Math.max(0, seg.endMs - seg.startMs);
       seg.timeSource = 'packets';
     }
     await startPlaySession([seg], new Map([[seg.id, file]]), false, file.name, doc);

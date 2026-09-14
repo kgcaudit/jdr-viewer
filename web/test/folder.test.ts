@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BufferByteSource } from '../src/core/byte-source';
-import { probeSegment, timeFromFileName, type SegmentInfo } from '../src/core/segment';
+import { durationExceedsContent, probeSegment, timeFromFileName, type SegmentInfo } from '../src/core/segment';
 import { buildLibrary, recomputeLibrary, resolvePlayPosition, segmentIndexAt, gapAt } from '../src/core/library';
 import { scanRecords } from '../src/core/records';
 import { formatRecordedTime } from '../src/core/time';
@@ -439,6 +439,90 @@ describe('헤더 시각과 실제 패킷이 어긋날 때', () => {
     expect(lib.gaps, '다섯 시간 주차가 빈 구간으로 보여야 한다').toHaveLength(1);
     expect(lib.gaps[0].durationMs).toBeGreaterThan(5 * 3600_000);
     expect(lib.coveredMs).toBeLessThan(10_000);
+  });
+
+  /**
+   * 실기기 00000224.jdr 모양.
+   *
+   * 10:25:54에 시작해 영상 50초를 찍고 끝났는데, 16:01에 시동을 걸며 기기가
+   * 이 파일 꼬리에 GPS 패킷을 덧붙였다. 그 패킷을 파일의 끝으로 삼으면 한
+   * 구간이 5시간 35분짜리가 되어 주차 시간을 통째로 덮는다.
+   */
+  function buildWithTailPacket(parkMs: number) {
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 60; f++) {
+      const t = T0 + Math.round((f * 1000) / 30);
+      packets.push({ tag: f % 30 === 0 ? '00VI' : '00VP', payload: new Uint8Array(100), timeMs: t, aux: f });
+    }
+    // 시동을 걸며 덧붙은 GPS 한 줄 — 헤더 종료 시각도 그 시각으로 갱신된다
+    const tailMs = T0 + parkMs;
+    packets.push({
+      tag: '00GP', timeMs: tailMs,
+      payload: gpsPayload({
+        year: 2026, month: 9, day: 12, hour: 23, minute: 16, second: 43,
+        latNmea: 3733.5678, lonNmea: 12658.1234, altitude: 40, speed: 0,
+      }),
+    });
+    return new BufferByteSource(
+      buildJdrBlock(packets, 0, { startMs: T0, endMs: tailMs }),
+      'x.jdr',
+    );
+  }
+
+  it('시동을 걸며 덧붙은 꼬리 패킷이 구간을 늘리지 않는다', async () => {
+    const PARK_MS = 5 * 3600_000 + 35 * 60_000;
+    const src = buildWithTailPacket(PARK_MS);
+    const seg = await probeSegment({ src, name: 'x.jdr', path: 'data/x.jdr', size: src.size });
+
+    // 영상이 끝난 곳이 구간의 끝이다
+    expect(seg.endMs).toBe(lastPacketMs);
+    expect(seg.durationMs).toBeLessThan(3000);
+  });
+
+  it('꼬리 패킷 때문에 덮였던 주차 빈 구간이 되살아난다', async () => {
+    const PARK_MS = 5 * 3600_000 + 35 * 60_000;
+    const a = buildWithTailPacket(PARK_MS);
+    const segA = await probeSegment({ src: a, name: 'a.jdr', path: 'data/a.jdr', size: a.size });
+
+    const T1 = T0 + PARK_MS;
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 60; f++) {
+      packets.push({ tag: f % 30 === 0 ? '00VI' : '00VP', payload: new Uint8Array(100), timeMs: T1 + Math.round((f * 1000) / 30), aux: f });
+    }
+    const b = new BufferByteSource(buildJdrBlock(packets, 0), 'b.jdr');
+    const segB = await probeSegment({ src: b, name: 'b.jdr', path: 'data/b.jdr', size: b.size });
+
+    const lib = buildLibrary([segA, segB]);
+    expect(lib.gaps, '다섯 시간 주차가 빈 구간으로 보여야 한다').toHaveLength(1);
+    expect(lib.gaps[0].durationMs).toBeGreaterThan(5 * 3600_000);
+  });
+
+  it('영상이 없는 파일이라도 담긴 패킷 수가 못 받치는 길이는 믿지 않는다', async () => {
+    // 음성·센서만 있는 파일에 다섯 시간짜리 헤더 종료 시각
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 40; f++) {
+      packets.push({ tag: '00SE', payload: gsensorPayload(f, -f, 1024), timeMs: T0 + f * 100 });
+    }
+    const far = T0 + 5 * 3600_000;
+    const src = new BufferByteSource(
+      buildJdrBlock(packets, 0, { startMs: T0, endMs: far }),
+      'x.jdr',
+    );
+    const seg = await probeSegment({ src, name: 'x.jdr', path: 'data/x.jdr', size: src.size });
+    expect(seg.durationMs).toBeLessThan(60_000);
+  });
+
+  it('담긴 내용이 못 받치는 길이는 어디서 온 값이든 믿지 않는다', () => {
+    const SEC = 1000;
+    // 영상 1500프레임(50초짜리 파일)이 다섯 시간일 수는 없다
+    expect(durationExceedsContent(5 * 3600 * SEC, 1500, 5309)).toBe(true);
+    // 주차 저속 녹화(1fps)는 받아들인다 — 600프레임이면 10분까지
+    expect(durationExceedsContent(600 * SEC, 600, 700)).toBe(false);
+    expect(durationExceedsContent(601 * SEC, 600, 600)).toBe(true);
+    // 영상이 없어도 패킷 수로 가늠한다
+    expect(durationExceedsContent(5 * 3600 * SEC, 0, 5309)).toBe(true);
+    // 가늠할 근거가 없으면 건드리지 않는다
+    expect(durationExceedsContent(5 * 3600 * SEC, 0, 1)).toBe(false);
   });
 
   it('헤더를 그대로 믿었다면 생겼을 빈 구간이 사라진다', async () => {

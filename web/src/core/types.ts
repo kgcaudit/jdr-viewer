@@ -102,6 +102,11 @@ export interface JdrDocument {
   tagCounts: Record<string, number>;
   firstTimeMs: number;
   lastTimeMs: number;
+  /**
+   * 영상·음성 패킷만 본 마지막 시각. 구간의 길이는 담긴 내용이 정한다 —
+   * 꼬리에 덧붙은 GPS·센서 패킷 한 줄이 주차 시간을 녹화로 덮으면 안 된다.
+   */
+  contentEndMs: number;
   durationSec: number;
   indexMismatches: number;
   video: VideoChannelInfo[];

@@ -245,7 +245,10 @@ export class SequencePlayer {
   /** 실제 문서 시각으로 구간 기록을 고친다. 고쳤으면 true. */
   private applyRealTimes(seg: SegmentInfo, doc: JdrDocument): boolean {
     const start = doc.firstTimeMs;
-    const end = doc.lastTimeMs;
+    // 끝은 **영상·음성이 끝난 곳**이다. doc.lastTimeMs를 쓰면 시동을 걸며
+    // 꼬리에 덧붙은 GPS 패킷 한 줄 때문에 주차한 다섯 시간이 이 구간으로
+    // 덮인다 — 여기서 고쳐 두지 않으면 그 파일을 여는 순간 되살아난다.
+    const end = Number.isFinite(doc.contentEndMs) ? doc.contentEndMs : doc.lastTimeMs;
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return false;
     if (Math.abs(seg.startMs - start) < TIME_FIX_MIN_MS && Math.abs(seg.endMs - end) < TIME_FIX_MIN_MS) {
       return false;

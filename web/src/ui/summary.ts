@@ -72,6 +72,37 @@ function readCoverage(lib: Library): string {
     <span class="muted small">이만큼이 빈 구간으로 잘못 보일 수 있습니다. 인덱스를 갱신해 보세요.</span>`;
 }
 
+/** 영상·음성이 끝난 곳 (구간 길이의 기준) */
+function contentEnd(doc: JdrDocument): number {
+  return Number.isFinite(doc.contentEndMs) ? doc.contentEndMs : doc.lastTimeMs;
+}
+
+function contentSec(doc: JdrDocument): number {
+  const end = contentEnd(doc);
+  if (!Number.isFinite(doc.firstTimeMs) || !Number.isFinite(end)) return 0;
+  return Math.max(0, (end - doc.firstTimeMs) / 1000);
+}
+
+/** 영상이 끝난 한참 뒤에 적힌 패킷이 있으면 밝힌다 — 이걸 감추면 안 된다 */
+const TAIL_PACKET_WARN_MS = 60_000;
+
+/**
+ * 기기는 시동을 걸 때 직전 파일 꼬리에 GPS·센서 패킷을 덧붙이기도 한다.
+ * 그 시각을 파일의 끝으로 삼으면 **주차한 몇 시간이 "녹화된 구간"이 된다.**
+ * 길이는 영상·음성 기준으로 잡되, 그런 패킷이 있다는 사실은 그대로 알린다 —
+ * 파일에 적힌 것을 화면에서 지워 버리면 그게 더 나쁜 거짓말이다.
+ */
+function tailPacketRow(doc: JdrDocument): string {
+  const end = contentEnd(doc);
+  if (!Number.isFinite(end) || !Number.isFinite(doc.lastTimeMs)) return '';
+  const after = doc.lastTimeMs - end;
+  if (after < TAIL_PACKET_WARN_MS) return '';
+  return `<dt>꼬리 패킷</dt><dd><span class="status-warn">${formatRecordedTime(doc.lastTimeMs)}</span><br>
+    <span class="muted small">영상이 끝나고 ${formatDurationKo(after / 1000)} 뒤에 적힌 패킷이 있습니다
+    (시동을 걸며 덧붙은 기록으로 보입니다). <strong>구간 길이는 영상·음성 기준</strong>으로 잡습니다 —
+    이걸 끝으로 삼으면 주차한 시간이 녹화된 것처럼 보입니다.</span></dd>`;
+}
+
 function integrityLine(doc: JdrDocument): string {
   const noIndex = doc.blocks.some((b) => !b.indexAvailable);
   if (noIndex) {
@@ -168,8 +199,9 @@ export function renderSummary(el: HTMLElement, input: SummaryInput): void {
     <p class="section-title">${merged ? '현재 구간 기록' : '기록'}</p>
     <dl class="kv">
       <dt>시작</dt><dd>${formatRecordedTime(doc.firstTimeMs)}</dd>
-      <dt>종료</dt><dd>${formatRecordedTime(doc.lastTimeMs)}</dd>
-      <dt>길이</dt><dd>${formatDurationKo(doc.durationSec)} <span class="muted">(${doc.durationSec.toFixed(3)}초)</span></dd>
+      <dt>종료</dt><dd>${formatRecordedTime(contentEnd(doc))}</dd>
+      <dt>길이</dt><dd>${formatDurationKo(contentSec(doc))} <span class="muted">(${contentSec(doc).toFixed(3)}초)</span></dd>
+      ${tailPacketRow(doc)}
       <dt>JEB 블록</dt><dd>${num(doc.blocks.length)}개</dd>
       <dt>패킷</dt><dd>${num(doc.packets.count)}개</dd>
     </dl>

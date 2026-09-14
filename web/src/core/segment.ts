@@ -9,6 +9,7 @@
 import type { ByteSource } from './byte-source';
 import { INDEX_ENTRY_SIZE, JEB_HEADER_SIZE, PACKET_HEADER_SIZE, readSystemTimeFromView, validateHeader } from './parser';
 import { systemTimeToMs } from './time';
+import { packTag, TagKind, tagKind } from './tags';
 
 /** 시간 범위를 어디서 얻었는지 — UI에 신뢰도를 표시하기 위함 */
 export type TimeSource = 'header' | 'packets' | 'filename' | 'unknown';
@@ -66,11 +67,13 @@ const RESUME_STEPS = [4 << 10, 64 << 10, 256 << 10];
 /** 넓혀 훑기를 파일당 몇 번까지 허용할지 */
 const RESUME_WIDE_BUDGET = 4;
 /**
- * 헤더 종료 시각을 믿을지 가르는 최저 프레임률.
- * 주차 저속 녹화까지 감안해 아주 느슨하게 잡는다 — 이걸 넘어서면
- * 녹화 길이가 아니라 다른 무엇이 적힌 것이다.
+ * 담긴 내용이 받쳐 줄 수 있는 최저 속도 — 패킷 하나에 1초.
+ *
+ * 주차 저속 녹화(1fps)까지 감안해도 이보다 느릴 수는 없다. 이걸 넘는 길이는
+ * 녹화된 시간이 아니라 **파일에 적힌 다른 무엇**이다(파일을 닫은 시각,
+ * 시동을 걸며 덧붙인 GPS 패킷 한 줄 따위).
  */
-const MIN_FPS = 1;
+const MIN_RATE_PER_SEC = 1;
 /** 헤더가 0번지에 없을 때 훑어볼 범위. 이보다 뒤면 이 파일은 건너뛴다. */
 const SCAN_LIMIT = 4 << 20;
 const MAGIC = [0x31, 0x42, 0x45, 0x4a];
@@ -221,10 +224,14 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
   if (!Number.isFinite(endMs) || endMs <= startMs) {
     endMs = startMs + (frames > 1 ? ((frames - 1) / 30) * 1000 : 0);
     endEstimated = true;
-  } else if (timeSource === 'header' && frames > 1 && endMs - startMs > (frames / MIN_FPS) * 1000) {
-    // 패킷을 못 읽어 헤더 값을 쓰는 경우다. 담긴 프레임 수가 도저히 받쳐
-    // 주지 못하는 길이라면 그건 녹화 길이가 아니라 파일을 닫은 시각이다.
-    endMs = startMs + ((frames - 1) / 30) * 1000;
+  } else if (durationExceedsContent(endMs - startMs, frames, base.packetCount)) {
+    // **시각 출처를 가리지 않는 최후의 방어선이다.**
+    //
+    // 헤더든 패킷이든, 70MB에 영상 50초를 담은 파일이 다섯 시간짜리일 수는
+    // 없다. 그런 값이 나오면 그건 녹화 길이가 아니다. 조용히 믿으면 주차
+    // 시간이 "녹화된 구간"으로 덮여 없는 기록을 있다고 말하게 된다.
+    // 담긴 프레임으로 고치고 화면에 "길이 추정"이라고 밝힌다.
+    endMs = startMs + (frames > 1 ? ((frames - 1) / 30) * 1000 : 0);
     endEstimated = true;
   }
 
@@ -240,7 +247,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
 }
 
 /** 끝에서부터 이만큼까지는 되짚어 본다 — 마지막 패킷의 시각이 비어 있는 경우가 있다 */
-const TAIL_SCAN = 24;
+const TAIL_SCAN = 48;
 
 /**
  * 첫 패킷과 마지막 패킷의 시각을 읽는다.
@@ -251,14 +258,23 @@ const TAIL_SCAN = 24;
  *   - 파일 사이에 없는 빈 구간이 생긴다
  *   - 탐색 막대를 파일 뒷부분으로 끌면 범위를 벗어나 다음 파일로 튕겨 나간다
  *
- * 그래서 끝에서부터 거슬러 올라가며 **시각이 읽히는 첫 패킷**을 찾는다.
+ * 그래서 끝에서부터 거슬러 올라가며 시각이 읽히는 패킷을 찾는다.
  * 인덱스 항목은 붙어 있으므로 한 번에 읽어 두고 패킷 헤더만 몇 번 더 본다.
+ *
+ * **영상·음성 패킷을 먼저 친다.** 구간의 길이를 정하는 건 담긴 내용이지
+ * 파일에 마지막으로 적힌 무언가가 아니다. 기기는 시동을 걸 때 직전 파일
+ * 꼬리에 GPS·센서 패킷을 한둘 더 적기도 하는데, 그걸 끝으로 삼으면 주차한
+ * 다섯 시간이 통째로 "녹화된 구간"이 된다. 인덱스 항목의 앞 4바이트가
+ * 태그라 **추가 읽기 없이** 가려낼 수 있다.
  */
 async function timeRangeFromPackets(
   src: ByteSource, firstBlock: number, lastIndexOffset: number, lastCount: number,
 ): Promise<{ startMs: number; endMs: number }> {
   let startMs = NaN;
-  let endMs = NaN;
+  /** 영상·음성 중 가장 늦은 시각 — 이게 있으면 이걸 쓴다 */
+  let mediaEnd = NaN;
+  /** 종류를 가리지 않은 마지막 시각 — 영상·음성을 못 찾았을 때만 쓴다 */
+  let anyEnd = NaN;
   try {
     const head = await src.read(firstBlock + JEB_HEADER_SIZE, PACKET_HEADER_SIZE);
     if (head.length === PACKET_HEADER_SIZE) {
@@ -273,15 +289,23 @@ async function timeRangeFromPackets(
         const ev = new DataView(entries.buffer, entries.byteOffset, entries.byteLength);
         const have = Math.floor(entries.length / INDEX_ENTRY_SIZE);
         for (let k = have - 1; k >= 0; k--) {
-          const packetOffset = ev.getUint32(k * INDEX_ENTRY_SIZE + 8, true);
+          const at = k * INDEX_ENTRY_SIZE;
+          const packetOffset = ev.getUint32(at + 8, true);
           if (packetOffset <= 0 || packetOffset + PACKET_HEADER_SIZE > src.size) continue;
+          const kind = tagKind(packTag(
+            ev.getUint8(at), ev.getUint8(at + 1), ev.getUint8(at + 2), ev.getUint8(at + 3),
+          ));
+          const isMedia = kind === TagKind.Video || kind === TagKind.Audio;
+          // 영상·음성을 이미 찾았으면 그 앞은 볼 것도 없다
+          if (!isMedia && Number.isFinite(anyEnd)) continue;
           const tail = await src.read(packetOffset, PACKET_HEADER_SIZE);
           if (tail.length !== PACKET_HEADER_SIZE) continue;
           const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
           const t = readSystemTimeFromView(tv, 12);
-          if (Number.isFinite(t)) {
-            // 꼬리 쪽이 시각 순이 아닐 수 있으니 가장 늦은 것을 남긴다
-            if (!Number.isFinite(endMs) || t > endMs) endMs = t;
+          if (!Number.isFinite(t)) continue;
+          if (!Number.isFinite(anyEnd) || t > anyEnd) anyEnd = t;
+          if (isMedia) {
+            mediaEnd = t;
             break;
           }
         }
@@ -290,7 +314,7 @@ async function timeRangeFromPackets(
   } catch {
     /* 읽기 실패는 상위에서 파일명 폴백으로 처리 */
   }
-  return { startMs, endMs };
+  return { startMs, endMs: Number.isFinite(mediaEnd) ? mediaEnd : anyEnd };
 }
 
 /**
@@ -333,4 +357,16 @@ async function scanForBlock(src: ByteSource, from: number, to: number): Promise<
     if (await validateHeader(src, at)) return at;
   }
   return -1;
+}
+
+/**
+ * 이 길이를 담긴 내용이 받쳐 주는가.
+ *
+ * 영상 프레임 수와 전체 패킷 수 중 **큰 쪽**을 본다. 영상이 없는 파일
+ * (음성만 남은 주차 녹화 등)도 패킷 수로는 가늠할 수 있기 때문이다.
+ */
+export function durationExceedsContent(durationMs: number, frames: number, packets: number): boolean {
+  const units = Math.max(frames, packets);
+  if (units < 2) return false;
+  return durationMs > (units / MIN_RATE_PER_SEC) * 1000;
 }
