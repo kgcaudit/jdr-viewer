@@ -39,11 +39,71 @@ function makeFile(startMs: number, seconds: number, baseOffset = 0, videoBytes =
   return buildJdrBlock(packets, baseOffset);
 }
 
+/**
+ * 블록 사이에 정렬 패딩을 끼운 파일.
+ *
+ * 기기가 블록을 섹터 경계에 맞추면 "인덱스 테이블 바로 뒤"에 다음 블록이
+ * 없다. 참고 구현(파이썬)은 파일 전체에서 매직을 찾으므로 아무 문제가 없지만,
+ * 계산한 자리만 보는 체인 추적은 거기서 멈춰 **뒷부분을 통째로 잃는다.**
+ */
+function makePaddedFile(startMs: number, seconds: number, padBytes: number): Uint8Array<ArrayBuffer> {
+  const half = Math.max(1, Math.floor(seconds / 2));
+  const a = makeFile(startMs, half);
+  const pad = new Uint8Array(padBytes);
+  const b = makeFile(startMs + half * 1000, seconds - half, a.length + padBytes);
+  const out = new Uint8Array(a.length + padBytes + b.length);
+  out.set(a, 0);
+  out.set(pad, a.length);
+  out.set(b, a.length + padBytes);
+  return out;
+}
+
 const T = (h: number, m: number, s: number) => Date.UTC(2026, 8, 9, h, m, s, 0);
 
 async function probe(bytes: Uint8Array<ArrayBuffer>, name: string, path = name): Promise<SegmentInfo> {
   return probeSegment({ src: new BufferByteSource(bytes, name), name, path, size: bytes.length });
 }
+
+describe('블록 체인이 끊긴 파일', () => {
+  it('정렬 패딩을 건너뛰고 뒷블록까지 읽는다 — 없는 빈 구간의 원인', async () => {
+    const bytes = makePaddedFile(T(8, 16, 0), 8, 2048);
+    const seg = await probe(bytes, '00000465.jdr');
+
+    expect(seg.error).toBeUndefined();
+    expect(seg.blockOffsets, '두 블록을 다 찾아야 한다').toHaveLength(2);
+    // 뒷블록을 놓치면 파일이 절반 길이로 보이고, 다음 파일과의 사이에
+    // 4초짜리 없는 빈 구간이 생긴다
+    expect(seg.durationMs).toBeGreaterThan(7000);
+    expect(seg.ch0Count).toBe(240);
+    expect(seg.coveredBytes).toBe(bytes.length);
+  });
+
+  it('덜 읽었으면 덜 읽었다고 남긴다 (조용히 짧아지지 않는다)', async () => {
+    // 되찾기 범위를 넘는 쓰레기를 끼워 두 번째 블록을 사실상 가린다
+    const bytes = makePaddedFile(T(8, 16, 0), 8, 512 << 10);
+    const seg = await probe(bytes, '00000466.jdr');
+
+    expect(seg.error).toBeUndefined();
+    expect(seg.blockOffsets).toHaveLength(1);
+    // 진단이 남아야 사용자가 "왜 빈 구간이 생겼나"를 되짚을 수 있다
+    expect(seg.coveredBytes!).toBeLessThan(bytes.length * 0.5);
+  });
+
+  it('뒤에 붙은 자투리 때문에 프로브가 느려지지 않는다', async () => {
+    const base = makeFile(T(8, 16, 0), 4);
+    const bytes = new Uint8Array(base.length + 4096);
+    bytes.set(base, 0);
+    const src = new BufferByteSource(bytes as Uint8Array<ArrayBuffer>, 'x.jdr');
+    let readBytes = 0;
+    const counting = {
+      size: src.size, name: src.name,
+      async read(o: number, l: number) { const b = await src.read(o, l); readBytes += b.length; return b; },
+    };
+    await probeSegment({ src: counting, name: 'x.jdr', path: 'data/x.jdr', size: bytes.length });
+    // 자투리 4KB를 한 번 훑는 것까지는 허용하되, 파일 전체를 읽으면 안 된다
+    expect(readBytes).toBeLessThan(16 << 10);
+  });
+});
 
 describe('세그먼트 프로브', () => {
   it('헤더 512바이트만으로 시간 범위와 구성을 읽는다', async () => {

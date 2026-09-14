@@ -11,7 +11,8 @@ import type { SegmentInfo, TimeSource } from './segment';
 
 const DB_NAME = 'jdr-viewer';
 /** 3: 시작 시각 계산이 바뀌어 예전 캐시는 버린다 */
-const DB_VERSION = 3;
+// 4: 블록 체인 되찾기 — 예전 값은 파일 뒷부분을 놓친 채 굳어 있으므로 버린다
+const DB_VERSION = 4;
 const STORE = 'probes';
 
 /** 캐시에 담는 값 — 경로/폴더처럼 열 때마다 달라지는 건 넣지 않는다 */
@@ -29,6 +30,7 @@ export interface ProbeCacheValue {
   timeSource: TimeSource;
   endEstimated: boolean;
   headerShiftMs: number;
+  coveredBytes?: number;
   error?: string;
 }
 
@@ -43,7 +45,8 @@ export function toCacheValue(key: string, seg: SegmentInfo): ProbeCacheValue {
     packetCount: seg.packetCount, ch0Count: seg.ch0Count, ch1Count: seg.ch1Count,
     gpsCount: seg.gpsCount, sensorCount: seg.sensorCount,
     blockOffsets: seg.blockOffsets, timeSource: seg.timeSource,
-    endEstimated: seg.endEstimated, headerShiftMs: seg.headerShiftMs, error: seg.error,
+    endEstimated: seg.endEstimated, headerShiftMs: seg.headerShiftMs,
+    coveredBytes: seg.coveredBytes, error: seg.error,
   };
 }
 
@@ -58,7 +61,8 @@ export function fromCacheValue(
     packetCount: v.packetCount, ch0Count: v.ch0Count, ch1Count: v.ch1Count,
     gpsCount: v.gpsCount, sensorCount: v.sensorCount,
     blockOffsets: v.blockOffsets, timeSource: v.timeSource,
-    endEstimated: v.endEstimated, headerShiftMs: v.headerShiftMs ?? 0, error: v.error,
+    endEstimated: v.endEstimated, headerShiftMs: v.headerShiftMs ?? 0,
+    coveredBytes: v.coveredBytes ?? 0, error: v.error,
   };
 }
 

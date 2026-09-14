@@ -98,8 +98,50 @@ export function markActiveSegment(track: HTMLElement, index: number): void {
  */
 export function gapCause(g: Gap): string {
   if (g.numberSkip > 0) return `파일 ${num(g.numberSkip)}개 없음 (${g.beforeName} → ${g.afterName})`;
-  if (g.numberSkip === 0) return `파일 번호는 이어짐 (${g.beforeName} → ${g.afterName}) — 기록 끊김`;
+  if (g.numberSkip === 0) {
+    return g.durationMs <= HANDOVER_MS
+      ? `파일 전환 틈 (${g.beforeName} → ${g.afterName}) — 정상`
+      : `파일 번호는 이어짐 (${g.beforeName} → ${g.afterName}) — 기록 끊김`;
+  }
   return `${g.beforeName} → ${g.afterName}`;
+}
+
+/**
+ * 이보다 짧고 파일 번호가 이어지면 **기기가 파일을 닫고 여는 시간**으로 본다.
+ *
+ * 블랙박스는 한 파일을 닫고 다음 파일을 여는 사이 몇 초를 못 찍는다. 이건
+ * 고장이 아니라 기기의 정상 동작이라, 파일이 없어진 것과 섞어 세면 사람이
+ * 잘못 판단한다. 그래서 따로 센다.
+ */
+const HANDOVER_MS = 5000;
+
+/**
+ * 빈 구간이 왜 생겼는지를 **원인별로 묶어** 한눈에 보여 준다.
+ *
+ * "18곳 5분 26초"만으로는 아무 판단도 못 한다. 파일이 없어서인지, 기기가
+ * 원래 못 찍는 틈인지, 우리가 시각을 잘못 읽은 것인지가 갈려야 한다.
+ */
+function gapBreakdown(gaps: Gap[]): string {
+  const sum = (list: Gap[]): number => list.reduce((a, g) => a + g.durationMs, 0);
+  const missing = gaps.filter((g) => g.numberSkip > 0);
+  const handover = gaps.filter((g) => g.numberSkip === 0 && g.durationMs <= HANDOVER_MS);
+  const broken = gaps.filter((g) => g.numberSkip === 0 && g.durationMs > HANDOVER_MS);
+  const unknown = gaps.filter((g) => g.numberSkip < 0);
+
+  const row = (label: string, list: Gap[], why: string): string =>
+    list.length === 0 ? '' : `<div class="gap-kind">
+      <span class="gap-kind-n">${num(list.length)}곳</span>
+      <span class="gap-kind-d">${formatDurationKo(sum(list) / 1000)}</span>
+      <span class="gap-kind-l"><strong>${escapeHtml(label)}</strong><br>
+        <span class="muted small">${escapeHtml(why)}</span></span>
+    </div>`;
+
+  return `<div class="gap-kinds">
+    ${row('파일이 없음', missing, '번호가 건너뛰었습니다 — 덮어쓰기(루프 녹화)나 삭제, 또는 옮길 때 빠진 파일입니다.')}
+    ${row('파일 전환 틈', handover, '기기가 한 파일을 닫고 다음을 여는 사이입니다. 정상이며 영상은 이어집니다.')}
+    ${row('번호는 이어지는데 길게 빔', broken, '녹화가 실제로 멈췄거나(주차·전원), 파일 뒷부분을 덜 읽어 짧아 보이는 것입니다. 요약 탭의 "파일 읽힌 정도"를 확인하세요.')}
+    ${row('원인 미상', unknown, '파일 이름에서 번호를 읽을 수 없어 비교하지 못했습니다.')}
+  </div>`;
 }
 
 function gapSection(gaps: Gap[]): string {
@@ -112,6 +154,7 @@ function gapSection(gaps: Gap[]): string {
     missing > 0 ? `파일 ${num(missing)}개 없음` : '',
     broken > 0 ? `번호는 이어지는데 끊긴 곳 ${num(broken)}곳` : '',
   ].filter(Boolean).join(' · ');
+  const breakdown = gapBreakdown(gaps);
 
   const rows = gaps.slice(0, 60).map((g) => `<div class="gap-row${g.numberSkip > 0 ? ' is-missing' : ''}">
     <span class="gap-time">${formatRecordedTime(g.fromMs, false).slice(11, 19)} ~ ${formatRecordedTime(g.toMs, false).slice(11, 19)}</span>
@@ -120,6 +163,7 @@ function gapSection(gaps: Gap[]): string {
   </div>`).join('');
 
   return `<p class="section-title">${escapeHtml(head)}</p>
+    ${breakdown}
     <div class="gap-list">${rows}${gaps.length > 60 ? `<p class="muted small">외 ${num(gaps.length - 60)}곳</p>` : ''}</div>
     <p class="muted small">파일 번호가 건너뛰면 <strong>그 파일이 실제로 없는 것</strong>입니다
       (덮어쓰기·삭제). 번호가 이어지는데도 비어 있으면 녹화가 끊겼거나 기록된 시각이 어긋난 것입니다.</p>`;

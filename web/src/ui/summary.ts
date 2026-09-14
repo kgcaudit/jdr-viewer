@@ -37,10 +37,39 @@ function librarySection(lib: Library): string {
       <dt>벽시계 길이</dt><dd>${formatDurationKo(lib.spanMs / 1000)}</dd>
       <dt>실제 영상</dt><dd>${formatDurationKo(lib.coveredMs / 1000)} <span class="muted">(${coverage.toFixed(1)}%)</span></dd>
       <dt>빈 구간</dt><dd>${gapSummary(lib)}</dd>
+      <dt>파일 읽힌 정도</dt><dd>${readCoverage(lib)}</dd>
       <dt>이벤트</dt><dd>${lib.events.length === 0 ? '없음' : `${num(lib.events.length)}건`}</dd>
       <dt>전체 크기</dt><dd>${bytes(lib.totalBytes)}</dd>
     </dl>
     ${overlapNote}`;
+}
+
+/**
+ * 블록 체인이 파일의 몇 %를 덮었는지.
+ *
+ * **빈 구간의 첫 번째 용의자다.** 파일 뒷부분의 블록을 못 읽으면 그 파일이
+ * 실제보다 짧아 보이고, 다음 파일과의 사이에 **없는 빈 구간이 생긴다.**
+ * 영상은 멀쩡히 이어져 있는데 화면에만 끊겨 보이는 것이라, 사람이 보고
+ * 판단할 수 있게 숫자로 내놓는다.
+ */
+function readCoverage(lib: Library): string {
+  let covered = 0;
+  let total = 0;
+  let known = 0;
+  for (const s of lib.segments) {
+    if (s.coveredBytes === undefined) continue;
+    known++;
+    covered += s.coveredBytes;
+    total += s.size;
+  }
+  if (known === 0 || total === 0) return '<span class="muted">옛 인덱스라 알 수 없음 — 인덱스 갱신</span>';
+  const pct = (covered / total) * 100;
+  const short = lib.segments.filter(
+    (s) => s.coveredBytes !== undefined && s.size > 0 && s.coveredBytes < s.size * 0.98,
+  ).length;
+  if (short === 0) return `<span class="status-ok">${pct.toFixed(1)}%</span> — 파일 끝까지 읽었습니다`;
+  return `<span class="status-warn">${pct.toFixed(1)}%</span> — 뒷부분을 덜 읽은 파일 ${num(short)}개<br>
+    <span class="muted small">이만큼이 빈 구간으로 잘못 보일 수 있습니다. 인덱스를 갱신해 보세요.</span>`;
 }
 
 function integrityLine(doc: JdrDocument): string {

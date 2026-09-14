@@ -552,3 +552,17 @@ body {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* 빈 구간 원인별 묶음 — "왜 끊겼나"가 목록보다 먼저 읽혀야 한다 */
+.gap-kinds { margin: 4px 0 12px; }
+.gap-kind {
+  display: grid;
+  grid-template-columns: 56px 74px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+.gap-kind-n { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.gap-kind-d { font-variant-numeric: tabular-nums; font-weight: 600; }
+.gap-kind-l { line-height: 1.45; }

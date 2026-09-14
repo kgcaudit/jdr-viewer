@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildIndexFile, entryToSegment, findIndexFile, INDEX_FILE_NAME, IndexFileError,
+  buildIndexFile, entryToSegment, findIndexFile, INDEX_FILE_NAME, INDEX_VERSION, IndexFileError,
   indexMatches, parseIndexFile, serializeIndexFile,
 } from '../src/core/index-file';
 import type { SegmentInfo } from '../src/core/segment';
@@ -10,6 +10,7 @@ const seg = (name: string, folder = 'data'): SegmentInfo => ({
   startMs: Date.UTC(2026, 8, 9, 8, 16, 0), endMs: Date.UTC(2026, 8, 9, 8, 17, 9),
   durationMs: 69_000, packetCount: 5309, ch0Count: 2095, ch1Count: 2095,
   gpsCount: 70, sensorCount: 699, blockOffsets: [0], timeSource: 'header', endEstimated: false, headerShiftMs: 0,
+  coveredBytes: 73_400_320,
 });
 
 /** 실제 70MB 버퍼를 만들 수는 없으니 size만 실제 값으로 맞춰 준다 */
@@ -77,7 +78,7 @@ describe('인덱스 파일', () => {
     // 옛 버전은 조용히 쓰지 않고 다시 읽게 한다 (계산 방식이 바뀌었으므로)
     expect(() => parseIndexFile('{"format":"jdr-viewer-index","version":1,"rows":[]}'))
       .toThrow(/인덱스 형식이 갱신되었습니다/);
-    expect(() => parseIndexFile('{"format":"jdr-viewer-index","version":3}'))
+    expect(() => parseIndexFile(`{"format":"jdr-viewer-index","version":${INDEX_VERSION}}`))
       .toThrow(/rows가 없습니다/);
   });
 

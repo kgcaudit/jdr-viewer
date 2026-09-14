@@ -39,11 +39,32 @@ export interface SegmentInfo {
    * 0이 아니면 헤더를 그대로 믿었을 때 그만큼 없는 빈 구간이 생긴다.
    */
   headerShiftMs: number;
+  /**
+   * 블록 체인이 실제로 덮은 바이트 수. `size`와 크게 차이 나면 **파일 뒷부분을
+   * 못 읽은 것**이고, 그만큼 파일이 짧아 보여 없는 빈 구간이 생긴다.
+   * 진단용이라 없을 수도 있다(옛 인덱스).
+   */
+  coveredBytes?: number;
   /** 읽을 수 없는 파일이면 사유 */
   error?: string;
 }
 
 const MAX_BLOCKS = 8192;
+/**
+ * 체인이 끊겼을 때 다음 블록을 찾아 훑을 범위 — 좁은 것부터 넓혀 간다.
+ *
+ * 블록은 인덱스 테이블 바로 뒤에 붙는 게 원칙이지만, 기기가 블록 사이를
+ * 정렬(패딩)하거나 블록 하나를 쓰다 말면 계산한 자리에 헤더가 없다.
+ * 거기서 그냥 멈추면 **그 뒤의 블록을 전부 잃는다** — 파일이 실제보다
+ * 짧아 보이고, 파일 사이에 없는 빈 구간이 생긴다.
+ *
+ * 그래도 프로브는 파일당 몇 KB만 읽는 게 존재 이유다. 그래서 정렬 패딩이
+ * 있을 만한 4KB부터 보고, 없을 때만 넓힌다. 넓히는 건 파일당 몇 번으로
+ * 묶어 둔다 — 뒤에 쓰레기가 붙은 파일 하나 때문에 폴더 전체가 느려지면 안 된다.
+ */
+const RESUME_STEPS = [4 << 10, 64 << 10, 256 << 10];
+/** 넓혀 훑기를 파일당 몇 번까지 허용할지 */
+const RESUME_WIDE_BUDGET = 4;
 /** 헤더가 0번지에 없을 때 훑어볼 범위. 이보다 뒤면 이 파일은 건너뛴다. */
 const SCAN_LIMIT = 4 << 20;
 const MAGIC = [0x31, 0x42, 0x45, 0x4a];
@@ -91,6 +112,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     startMs: NaN, endMs: NaN, durationMs: 0,
     packetCount: 0, ch0Count: 0, ch1Count: 0, gpsCount: 0, sensorCount: 0,
     blockOffsets: [], timeSource: 'unknown', endEstimated: false, headerShiftMs: 0,
+    coveredBytes: 0,
   };
 
   const first = await findFirstBlock(src);
@@ -106,9 +128,19 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
   let lastCount = 0;
   let pos = first;
 
+  /** 블록 체인이 실제로 덮은 마지막 바이트 — 파일 전체와 견줘 진단에 쓴다 */
+  let coveredTo = first;
+  let wideBudget = RESUME_WIDE_BUDGET;
   while (pos >= 0 && pos < size && offsets.length < MAX_BLOCKS) {
     const h = await validateHeader(src, pos);
-    if (!h) break;
+    if (!h) {
+      // 계산한 자리에 헤더가 없다. 패딩일 수 있으니 앞으로 훑어 따라잡는다.
+      const found = await findNextBlock(src, pos, size, wideBudget);
+      if (found.at < 0) break;
+      if (found.wide) wideBudget--;
+      pos = found.at;
+      continue;
+    }
     const dv = new DataView(h.raw.buffer, h.raw.byteOffset, h.raw.byteLength);
     if (!firstHeader) firstHeader = dv;
     lastHeader = dv;
@@ -124,6 +156,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
 
     // 다음 블록은 인덱스 테이블 바로 뒤에서 시작한다
     const next = h.indexOffset + h.packetCount * INDEX_ENTRY_SIZE;
+    coveredTo = Math.max(coveredTo, Math.min(next, size));
     pos = next > pos ? next : -1;
   }
 
@@ -131,6 +164,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     return { ...base, error: '헤더를 읽을 수 없습니다' };
   }
   base.blockOffsets = offsets;
+  base.coveredBytes = Math.max(0, coveredTo - first);
 
   // ── 시간 범위: 헤더 → 패킷 → 파일명 순으로 시도 ──
   let startMs = readSystemTimeFromView(firstHeader, 0x94);
@@ -243,4 +277,46 @@ async function timeRangeFromPackets(
     /* 읽기 실패는 상위에서 파일명 폴백으로 처리 */
   }
   return { startMs, endMs };
+}
+
+/**
+ * `from` 부터 앞으로 훑어 다음 JEB1 블록 머리를 찾는다. 없으면 at = -1.
+ *
+ * 참고 구현(파이썬 도구)은 파일 전체에서 매직을 찾는다. 프로브는 파일당
+ * 몇 KB만 읽는 게 목적이라 그럴 수 없으므로, **체인이 끊긴 자리 근처부터
+ * 좁게** 보고 필요할 때만 넓힌다. 정렬 패딩이라면 첫 걸음에서 끝난다.
+ *
+ * `wide`는 4KB를 넘겨 훑었는지 — 호출한 쪽이 그 횟수를 묶어 두기 위함이다.
+ */
+async function findNextBlock(
+  src: ByteSource, from: number, size: number, wideBudget: number,
+): Promise<{ at: number; wide: boolean }> {
+  if (from + JEB_HEADER_SIZE > size) return { at: -1, wide: false };
+  let scanned = 0;
+  for (let step = 0; step < RESUME_STEPS.length; step++) {
+    const wide = step > 0;
+    if (wide && wideBudget <= 0) break;
+    const want = Math.min(RESUME_STEPS[step], size - from);
+    if (want <= scanned) break;
+    // 이미 본 데는 다시 읽지 않는다. 청크 경계에 걸친 매직 때문에 3바이트만 겹친다.
+    const at = await scanForBlock(src, from + Math.max(0, scanned - 3), from + want);
+    if (at >= 0) return { at, wide };
+    scanned = want;
+    if (want >= size - from) break;
+  }
+  return { at: -1, wide: scanned > RESUME_STEPS[0] };
+}
+
+/** [from, to) 안에서 검증까지 통과하는 첫 JEB1 머리 */
+async function scanForBlock(src: ByteSource, from: number, to: number): Promise<number> {
+  const length = to - from;
+  if (length < 4) return -1;
+  const chunk = await src.read(from, length);
+  for (let i = 0; i + 4 <= chunk.length; i++) {
+    if (chunk[i] !== MAGIC[0] || chunk[i + 1] !== MAGIC[1]) continue;
+    if (chunk[i + 2] !== MAGIC[2] || chunk[i + 3] !== MAGIC[3]) continue;
+    const at = from + i;
+    if (await validateHeader(src, at)) return at;
+  }
+  return -1;
 }
