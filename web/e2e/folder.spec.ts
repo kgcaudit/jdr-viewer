@@ -1067,3 +1067,78 @@ test('좁은 화면에서는 세로로 쌓이고 날짜를 고른 결과가 아�
   // 눌러도 화면이 그대로면 "눌린 건가?" 싶으므로 결과가 보이는 자리로 옮겨 준다
   await expect(page.locator('.session-row').first()).toBeInViewport();
 });
+
+/** 폴드형 기기에서 실제로 깨졌던 크기들 */
+const FOLD_SIZES = [
+  { name: '폴드 메인 세로', width: 984, height: 1092 },
+  { name: '폴드 메인 가로', width: 1092, height: 984 },
+  { name: '폴드 커버', width: 412, height: 915 },
+  { name: '폴드 커버·주소창', width: 412, height: 620 },
+  { name: '옛 커버(좁음)', width: 344, height: 882 },
+  { name: '눕힌 폰', width: 700, height: 390 },
+];
+
+for (const size of FOLD_SIZES) {
+  test(`${size.name} — 탭바가 살아 있고 영상 아래 검은 여백이 없다`, async ({ page }) => {
+    // 412×620에서 패널 높이가 0이 되어 탭바가 화면 밖으로 2px 나갔고,
+    // 984×1092에서는 영상 칸이 253×717인데 그림은 253×142라 칸마다
+    // 575px이 검정이었다. 둘 다 실측으로 확인한 뒤 고친 것들이다.
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await openMorningSession(page);
+
+    const m = await page.evaluate(() => {
+      const inView = (el: Element | null): boolean => {
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        return r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0;
+      };
+      const cell = document.querySelector('.video-cell')!.getBoundingClientRect();
+      const canvas = document.querySelector('#canvas-0')!.getBoundingClientRect();
+      const panels = document.querySelector('.tab-panels') as HTMLElement;
+      return {
+        tabsInView: inView(document.querySelector('.tabs')),
+        summaryTabInView: inView(document.querySelector('[data-tab="summary"]')),
+        panelH: Math.round(panels.clientHeight),
+        clockInView: inView(document.getElementById('time-clock')),
+        stripInView: inView(document.querySelector('.strip-track')),
+        // 칸이 그림보다 얼마나 큰가 = 검은 여백 (테두리 2px은 허용)
+        blackPx: Math.round(cell.height - canvas.height),
+        // 그림 자체가 16:9인가
+        ratioOff: Math.abs(canvas.width / canvas.height - 16 / 9),
+        docScrollX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+
+    expect(m.tabsInView, '탭바가 화면 안에 있어야 한다').toBe(true);
+    expect(m.summaryTabInView, '요약 탭에 손이 닿아야 한다').toBe(true);
+    expect(m.panelH, '패널이 최소한의 높이를 가져야 한다').toBeGreaterThan(40);
+    expect(m.clockInView, '벽시계가 보여야 한다').toBe(true);
+    expect(m.stripInView, '구간 띠가 보여야 한다').toBe(true);
+    expect(m.blackPx, '영상 아래 검은 여백이 없어야 한다').toBeLessThanOrEqual(4);
+    expect(m.ratioOff, '영상이 16:9를 유지해야 한다').toBeLessThan(0.02);
+    expect(m.docScrollX, '가로 스크롤이 생기면 안 된다').toBeLessThanOrEqual(1);
+  });
+}
+
+test('영상 배치는 화면 폭이 아니라 무대 폭으로 정한다', async ({ page }) => {
+  // 984px 폴드를 세로로 들면 화면은 넓지만 무대 열은 530px뿐이다. 화면 폭으로
+  // 판단하면 영상 두 칸이 253px씩으로 쪼그라든다 — 8인치 화면에 엄지손톱만 한 영상.
+  await page.setViewportSize({ width: 984, height: 1092 });
+  await openMorningSession(page);
+  const narrowStage = await page.evaluate(() => {
+    const front = document.querySelector('#canvas-0')!.getBoundingClientRect();
+    const rear = document.querySelector('.video-cell:last-child')!;
+    return { frontW: Math.round(front.width), pip: getComputedStyle(rear).position === 'absolute' };
+  });
+  expect(narrowStage.pip, '무대가 좁으면 후방은 PIP가 된다').toBe(true);
+  expect(narrowStage.frontW, '전방이 무대 폭을 다 써야 한다').toBeGreaterThan(450);
+
+  // 무대가 넓어지면 나란히 놓는다
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(200);
+  const wideStage = await page.evaluate(() => {
+    const rear = document.querySelector('.video-cell:last-child')!;
+    return { pip: getComputedStyle(rear).position === 'absolute' };
+  });
+  expect(wideStage.pip, '무대가 넓으면 전방·후방을 나란히 놓는다').toBe(false);
+});

@@ -44,6 +44,13 @@
      레이아웃이 튀므로, 고정 요소가 있는 화면에는 svh(항상 보이는 최소 높이)를 쓴다. */
   --vh: 100svh;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  /**
+   * 영상에 내줄 수 있는 최대 높이.
+   *
+   * 화면의 45%까지 허용하되, 컨트롤·띠·탭바·패널 몫(약 400px)을 **먼저**
+   * 떼어 둔다. 둘 중 작은 쪽을 쓰므로 짧은 화면에서는 자동으로 더 줄어든다.
+   */
+  --video-h: min(45svh, max(96px, calc(var(--vh) - 430px)));
 }
 @supports not (height: 100svh) {
   :root { --vh: 100vh; }
@@ -183,20 +190,40 @@ body {
      (탭바가 화면 밖으로 104px 밀려났다). 남은 공간은 flex가 정해 준다. */
   min-height: 0;
 }
-/* 무대는 **줄어들지 않는다.** 여기 있는 것들(벽시계·컨트롤·띠)이 항상
-   보이라고 만든 구조이므로, 공간이 모자라면 양보하는 쪽은 패널이다.
-   패널은 안에서 스크롤할 수 있으니 얼마든지 좁아져도 된다.
-   (flex-shrink를 켜 뒀더니 패널의 긴 내용이 무대를 216px로 눌러
-   컨트롤과 띠가 영상 아래로 잘려 나갔다.) */
-.stage { flex: 0 0 auto; min-width: 0; display: flex; flex-direction: column; }
-/* 대신 **영상이 남은 공간을 다 먹지 못하게** 묶는다. 세로가 모자라면
-   먼저 줄어드는 건 영상이고, 컨트롤과 띠는 끝까지 자리를 지킨다. */
-.video-cell { max-height: 30svh; }
-.video-cell canvas { height: 100%; max-height: 30svh; }
-.panel {
-  flex: 1 1 auto;
+/* 양보하는 것은 **영상 한 곳뿐이다.**
+ *
+ * 처음엔 무대를 아예 안 줄어들게 못박았다. 패널의 긴 내용이 무대를 눌러
+ * 컨트롤과 띠가 잘리는 걸 막으려던 것인데, 그랬더니 화면이 짧을 때
+ * **패널 몫이 0이 되어 탭바가 화면 밖으로 나갔다**(412×620에서 실측).
+ * 몸통을 지키려다 머리를 잘랐다.
+ *
+ * 그래서 줄어드는 쪽을 하나로 못박는다 — 영상이다. 컨트롤·벽시계·띠는
+ * 끝까지 자리를 지키고, 패널에는 최소 높이를 줘 탭바가 절대 밀려나지 않는다.
+ */
+.stage {
+  /* 줄어들지 않는다. 줄어들게 했더니 패널이 **자기 내용 높이만큼** 공간을
+     요구해(basis:auto) 무대가 비율대로 눌렸고, 영상이 2px로 찌그러지면서
+     패널 위로 겹쳐 그려졌다. 대신 아래 --video-h로 **애초에 넘치지 않게**
+     예산을 잡는다 — 줄이는 것보다 안 넘치게 하는 쪽이 확실하다. */
+  flex: 0 0 auto;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 영상 배치를 **화면 폭이 아니라 이 열의 폭**으로 정하기 위한 기준점.
+     984px 폴드를 세로로 들면 화면은 넓지만 무대 열은 530px뿐이라,
+     화면 폭으로 판단하면 영상 두 칸이 253px씩으로 쪼그라든다. */
+  container-type: inline-size;
+  container-name: stage;
+}
+.stage > * { flex: 0 0 auto; }
+.panel {
+  /* basis를 0으로 둔다. auto면 패널이 **자기 내용 높이**를 요구해 무대를
+     밀어낸다 — 패널은 안에서 스크롤하므로 남는 만큼만 받으면 된다. */
+  flex: 1 1 0;
+  min-width: 0;
+  /* 탭바(44) + 내용 한 줄은 반드시 남는다 */
+  min-height: 96px;
   display: flex;
   flex-direction: column;
   /* 탭을 아래로 — DOM 순서는 그대로 두고 보이는 자리만 바꾼다 */
@@ -215,11 +242,13 @@ body {
   .tabs { order: 0; border-top: 0; border-bottom: 1px solid var(--border); }
   .tab-panels { order: 1; }
   .tab.is-active { border-top: 0; margin-top: 0; border-bottom-color: var(--accent); }
-  /* 영상이 남은 높이를 차지하고, 컨트롤·띠는 아래에 붙는다 */
-  .video-grid { flex: 1 1 auto; min-height: 120px; }
-  .video-cell { max-height: none; min-height: 0; }
-  .video-cell canvas { max-height: none; height: 100%; }
   .controls, .note-row, .session-chips, .strip, .recorded-time { flex: 0 0 auto; }
+}
+/* 좌우로 갈리면 탭바가 패널 **위쪽**에 있으므로, 세로 예산에서 패널 몫을
+   뗄 필요가 없다. 그만큼 영상에 더 준다 (700×390에서 171→231px).
+   선택자 없이 쓰면 통째로 무시되므로 .stage 에 건다. */
+@media (min-width: 900px), (orientation: landscape) and (min-width: 560px) {
+  .stage { --video-h: min(60svh, max(120px, calc(var(--vh) - 260px))); }
 }
 
 /* ── 영상 배치 ───────────────────────────────────────────────
@@ -232,7 +261,7 @@ body {
  * 세로 공간이 440 → 220으로 줄어 패널이 그만큼 살아난다.
  */
 .video-grid { display: grid; gap:10px; grid-template-columns: 1fr; }
-@media (max-width: 899px) and (orientation: portrait), (max-width: 559px) {
+@container stage (max-width: 519px) {
   .video-grid { position: relative; gap:0; }
   /* 앞에 온 쪽이 크게, 나머지가 작게. is-swapped면 순서만 뒤집는다. */
   .video-grid > .video-cell:first-child { grid-area: 1 / 1; }
@@ -269,11 +298,22 @@ body {
   .video-cell[style], .video-grid > .video-cell:last-child .cell-note { display: none; }
   .video-grid.is-swapped > .video-cell:first-child .cell-note { display: none; }
 }
-@media (min-width: 900px), (orientation: landscape) and (min-width: 560px) {
+@container stage (min-width: 520px) {
   .video-grid { grid-template-columns: 1fr 1fr; }
 }
 .video-cell { margin:0; background: #000; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); position: relative; }
-.video-cell canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
+/* 칸이 그림보다 커지면 그 차이가 **검은 여백**으로 남는다. 폴드 메인 세로에서
+   칸은 253×717인데 그림은 253×142였다 — 칸마다 575px이 검정이었다.
+   폭과 높이 중 **작은 쪽에 맞춰** 16:9 그대로 줄여 여백을 0으로 만든다. */
+.video-cell canvas {
+  display: block;
+  width: min(100%, calc(var(--video-h) * 16 / 9));
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #000;
+  margin-inline: auto;
+}
 /* 기기 OSD(날짜·속도·IROAD)가 영상 하단에 찍히므로 라벨은 우측 상단에 둔다 */
 .video-cell figcaption {
   position: absolute; inset: 0 0 auto auto; display: flex; gap:6px; align-items: center;
@@ -816,6 +856,11 @@ body {
    390px 높이에 컨트롤·출처·운행칩·띠·기록시각을 다 넣으면 정작 영상이
    15px만 남는다. 영상을 보려고 눕힌 건데 본말이 뒤집힌다.
    **영상·컨트롤·띠만 남기고** 나머지는 접는다 (패널에서 볼 수 있다). */
+/* 세로가 짧으면 곁가지 줄을 접는다. 눕힌 폰뿐 아니라 **주소창이 높이를
+   먹은 좁은 폰**도 같다 — 412×620에서 탭바가 화면 밖으로 나갔다. */
+@media (max-height: 620px) {
+  .note-row, .session-chips, .recorded-time { display: none; }
+}
 @media (orientation: landscape) and (max-height: 520px) {
   .note-row, .session-chips, .recorded-time { display: none; }
   .time-clock { font-size: 19px; }
@@ -832,4 +877,22 @@ body {
    올려 주지 않으므로, 앞에 뒀더니 56px 그대로였다. */
 @media (min-width: 900px), (orientation: landscape) and (min-width: 560px) {
   .cal-cell { min-height: clamp(56px, 5.5vw, 80px); }
+}
+
+/* 아주 좁은 화면(옛 폴드 커버 344px 등).
+   버튼 여덟 개는 44px를 지키면 312px 안에 못 들어간다. **손가락 규격을
+   깎는 대신 줄을 바꾼다** — 이런 기기는 대개 세로가 길어 한 줄 값은 낸다.
+   (안 그러면 가로 스크롤이 생겨 오른쪽 버튼에 손이 안 닿는다.) */
+@media (max-width: 380px) {
+  .ctl-transport { flex-wrap: wrap; row-gap: var(--s-1); justify-content: center; }
+  .ctl-gap { display: none; }
+  /* 상단바 버튼 넉 장이 안 들어가 **가로 스크롤**이 생겼다. 제목은 브라우저
+     탭에도 있으니 글자를 접고 표식만 남긴다. */
+  .brand-text { display: none; }
+  .brand { min-width: 0; }
+  .topbar-actions { gap: var(--s-1); }
+  /* 탭 여섯 개가 가로로 밀려 "요약·구간·지도가 안 보인다". 폭을 고르게
+     나눠 여섯 개가 **한눈에 다 들어오게** 한다. */
+  .tabs { overflow-x: hidden; }
+  .tab { flex: 1 1 0; min-width: 0; padding: var(--s-3) 2px; font-size: 11px; }
 }
