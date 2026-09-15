@@ -178,6 +178,7 @@ function applyTopbar(): void {
         more = [
           { id: 'move-folder-upload', label: '폴더 올리기', onClick: moveFolderUpload },
           { id: 'move-export', label: '파일로 저장', onClick: moveExport },
+          { id: 'move-clear-all', label: '전체 삭제', onClick: moveClearAll },
         ];
       }
       break;
@@ -1838,6 +1839,11 @@ function moveDelete(): void {
   const dayKey = moveCurrentDayKey;
   if (!dayKey || !confirm(`${dayKey} 이동기록을 지울까요?`)) return;
   void moveStore.removeDay(dayKey).then(() => { toast('지웠습니다'); backToMoveList(); });
+}
+function moveClearAll(): void {
+  if (moveDays.length === 0) { toast('지울 이동기록이 없습니다'); return; }
+  if (!confirm(`모든 이동기록(${num(moveDays.length)}일)을 지울까요? 되돌릴 수 없습니다.`)) return;
+  void moveStore.clearAll().then(() => { toast('모든 이동기록을 지웠습니다'); void refreshMoveList(); });
 }
 async function moveExport(): Promise<void> {
   const days = await moveStore.allDays();

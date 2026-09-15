@@ -1724,3 +1724,21 @@ test('이동기록 상세 — ⋯ 메뉴가 지도에 가리지 않는다(레이
   expect(onTop, '메뉴 항목이 지도에 가려지면 안 된다').toBe(true);
 });
 
+test('이동기록 — 전체 삭제로 모든 날짜를 한 번에 지운다', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  const mk = (t: string, la: number, lo: number) =>
+    JSON.stringify({ success:true, data:[[{ timestamp:t, latitude:la, longitude:lo, accuracy:10, speed:0, battery:80, address:'', provider:'gps', activity_type:'STILL', staytime:0 }]], errors:[] });
+  const a = join(dir, 'ca.txt'); writeFileSync(a, mk('2026-09-12 08:00:00', 37.5, 127.0));
+  const b = join(dir, 'cb.txt'); writeFileSync(b, mk('2026-09-13 08:00:00', 37.6, 127.1));
+  await page.locator('#move-file-input').setInputFiles([a, b]);
+  await page.waitForTimeout(300);
+  await expect(page.locator('.move-day')).toHaveCount(2);
+
+  page.on('dialog', (d) => void d.accept()); // 확인창 수락
+  await page.locator('#tb-more-btn').click();
+  await page.locator('#move-clear-all').click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('.move-day')).toHaveCount(0);
+});
+

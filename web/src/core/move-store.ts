@@ -259,6 +259,21 @@ export class MoveStore {
     return total;
   }
 
+  /** 모든 날짜를 한 번에 비운다 (전체 삭제) */
+  async clearAll(): Promise<void> {
+    const db = await this.open();
+    if (!db) return;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+    } catch { /* 다음 진입에서 다시 보인다 */ }
+  }
+
   async removeDay(dayKey: string): Promise<void> {
     const db = await this.open();
     if (!db) return;
