@@ -210,14 +210,18 @@ export function matchTracks(
 
   // 각 점이 대표하는 시간 = 앞뒤 이웃까지 절반씩 (양 끝은 한쪽만), 상한 적용
   for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    // 원본 staytime 으로 잡힌 체류 점은 그 자체가 오래 머문 구간이다. 이웃 간격
+    // 상한(10분)에 눌리면 3시간 체류가 10분으로 과소집계되므로 staytime 을 그대로 쓴다.
+    if (p.klass === 'stationary' && p.stayMs > 0) { p.spanMs = p.stayMs; continue; }
     const prev = points[i - 1];
     const next = points[i + 1];
     let span = 0;
-    if (prev) span += Math.min((points[i].timeMs - prev.timeMs) / 2, MAX_SPAN_MS / 2);
-    if (next) span += Math.min((next.timeMs - points[i].timeMs) / 2, MAX_SPAN_MS / 2);
-    if (!prev && next) span = Math.min(next.timeMs - points[i].timeMs, MAX_SPAN_MS);
-    if (prev && !next) span = Math.min(points[i].timeMs - prev.timeMs, MAX_SPAN_MS);
-    points[i].spanMs = Math.max(0, span);
+    if (prev) span += Math.min((p.timeMs - prev.timeMs) / 2, MAX_SPAN_MS / 2);
+    if (next) span += Math.min((next.timeMs - p.timeMs) / 2, MAX_SPAN_MS / 2);
+    if (!prev && next) span = Math.min(next.timeMs - p.timeMs, MAX_SPAN_MS);
+    if (prev && !next) span = Math.min(p.timeMs - prev.timeMs, MAX_SPAN_MS);
+    p.spanMs = Math.max(0, span);
   }
 
   const byClass = {} as Record<TrackClass, ClassStat>;

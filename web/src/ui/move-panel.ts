@@ -86,9 +86,12 @@ interface Seg { klass: TrackClass; fromMs: number; toMs: number; points: number;
 function foldSegments(m: MatchResult): Seg[] {
   const segs: Seg[] = [];
   for (const p of m.points) {
+    // 체류 점(원본 staytime)은 점 하나가 [도착, 도착+staytime] 구간을 대표한다.
+    // 그래야 타임테이블에 "17:46~21:24 체류"처럼 폭이 있는 줄로 남는다(안 그러면 걸러짐).
+    const end = p.klass === 'stationary' && p.stayMs > 0 ? p.timeMs + p.stayMs : p.timeMs;
     const last = segs[segs.length - 1];
-    if (last && last.klass === p.klass) { last.toMs = p.timeMs; last.points++; }
-    else segs.push({ klass: p.klass, fromMs: p.timeMs, toMs: p.timeMs, points: 1 });
+    if (last && last.klass === p.klass) { last.toMs = Math.max(last.toMs, end); last.points++; }
+    else segs.push({ klass: p.klass, fromMs: p.timeMs, toMs: end, points: 1 });
   }
   return segs;
 }

@@ -60,6 +60,16 @@ describe('휴대폰 × 차량 GPS 대사', () => {
     expect(points[0].klass).toBe('stationary');
   });
 
+  it('원본 staytime 체류는 그 시간만큼 체류로 집계된다(10분 상한에 안 눌림)', () => {
+    const before = phone(-60, 37.6, 127.6);            // 직전 이동
+    const stay = phone(0, 37.5, 127.0, { stayMs: 13082 * 1000 }); // 3h38m 체류(점 하나)
+    const after = phone(13083, 37.4, 127.4);           // 체류 끝나고 이동
+    const { points, summary } = matchTracks([], [before, stay, after]);
+    expect(points[1].klass).toBe('stationary');
+    expect(points[1].spanMs).toBe(13082 * 1000);        // 상한(10분)이 아니라 staytime
+    expect(summary.byClass.stationary.spanMs).toBe(13082 * 1000);
+  });
+
   it('같은 시각 차량이 있어도 staytime 이 크면 체류(주차)로 본다', () => {
     // 차량 GPS가 곁에 있어도 오래 머물렀으면 주행이 아니라 체류
     const cars: CarFix[] = [car(0, 37.5, 127)];
