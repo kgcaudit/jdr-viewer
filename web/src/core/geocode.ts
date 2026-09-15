@@ -20,6 +20,15 @@ export function geoKey(lat: number, lon: number): string {
   return `${lat.toFixed(4)},${lon.toFixed(4)}`;
 }
 
+/**
+ * 우선 제공자(카카오 등)를 주입한다. 호스팅(등록 도메인)에서 카카오 services 가
+ * 준비되면 main 이 여기에 넣어 준다. 있으면 이걸 먼저 쓰고, 빈 결과면 OSM 으로.
+ * (core 가 ui/kakao 를 직접 import 하지 않도록 주입으로 계층을 지킨다)
+ */
+type Provider = (lat: number, lon: number) => Promise<string>;
+let preferred: Provider | null = null;
+export function setPreferredProvider(fn: Provider | null): void { preferred = fn; }
+
 /** Nominatim 응답에서 한글 주소를 큰 단위→작은 단위로 조립한다 */
 export function formatNominatim(json: unknown): string {
   const j = json as { address?: Record<string, string>; display_name?: string };
@@ -126,10 +135,17 @@ export async function reverseGeocode(lat: number, lon: number): Promise<string> 
   if (pending) return pending;
 
   const p = (async () => {
-    // 직렬 체인에 매달아 호출 간격을 지킨다
-    const run = chain.then(() => fetchNominatim(lat, lon));
-    chain = run.catch(() => undefined);
-    const addr = await run;
+    let addr = '';
+    // 우선 제공자(카카오 등)가 있으면 먼저 — CORS·간격 제약 없이 도로명 주소
+    if (preferred) {
+      try { addr = await preferred(lat, lon); } catch { addr = ''; }
+    }
+    // 없거나 실패하면 OSM — 직렬 체인에 매달아 호출 간격(초당 1회)을 지킨다
+    if (!addr) {
+      const run = chain.then(() => fetchNominatim(lat, lon));
+      chain = run.catch(() => undefined);
+      addr = await run;
+    }
     if (addr) await cachePut(key, addr);
     inflight.delete(key);
     return addr;

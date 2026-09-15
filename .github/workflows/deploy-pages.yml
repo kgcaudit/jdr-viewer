@@ -1,0 +1,56 @@
+# JDR Viewer 를 GitHub Pages 로 배포한다.
+#
+# 왜 필요한가: 카카오 지도·주소(coord2Address)는 등록한 http(s) 도메인에서만
+# 동작한다(file:// 은 안 됨). 이 워크플로가 단일 HTML 을 빌드해
+# https://<owner>.github.io/<repo>/ 로 올려, 그 도메인을 카카오 콘솔에 등록하면
+# 지도·도로명 주소가 켜진다. 개인정보: 올라가는 건 빈 뷰어 껍데기뿐 —
+# JDR·GPS 파일은 여전히 브라우저에서만 처리되고 업로드되지 않는다.
+#
+# 사용: 저장소 Settings → Pages → Source 를 "GitHub Actions" 로 한 번 설정.
+# 그 뒤 main 에 푸시하거나, Actions 탭에서 이 워크플로를 수동 실행(원하는
+# 브랜치 선택)하면 배포된다.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build:single
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist-single
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

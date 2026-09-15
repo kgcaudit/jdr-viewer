@@ -49,7 +49,7 @@ function staysBlock(stays: Stay[]): string {
       <span class="stay-sum">${num(sum.places)}곳 · 총 ${escapeHtml(formatDurationKo(sum.totalMs / 1000))}</span>
     </div>
     <ol class="stay-list">${items}</ol>
-    <p class="stay-note muted small">주소는 OpenStreetMap 리버스 지오코딩입니다 — 체류 좌표가 전송됩니다.</p>
+    <p class="stay-note muted small">주소는 지도 서비스 리버스 지오코딩입니다(호스팅 시 카카오 도로명, 그 외 OSM) — 체류 좌표가 전송됩니다.</p>
   </section>`;
 }
 

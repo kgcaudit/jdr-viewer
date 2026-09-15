@@ -27,7 +27,8 @@ import { renderCalendar, type LoadStats } from './ui/calendar';
 import { renderSummary } from './ui/summary';
 import { hashSource } from './core/sha256';
 import { GpsMap } from './ui/map';
-import { preloadKakao } from './ui/kakao';
+import { preloadKakao, kakaoServicesReady, kakaoReverseGeocode } from './ui/kakao';
+import { setPreferredProvider } from './core/geocode';
 import { TimeCharts } from './ui/charts';
 import { renderRangeExport } from './ui/range-export';
 import { parsePhoneTrack } from './core/phone-track';
@@ -2007,4 +2008,7 @@ $('codec-note').textContent = hasWebCodecs()
   : '이 브라우저는 WebCodecs 미지원입니다 — 요약·GPS·센서·내보내기는 동작하지만 영상 재생은 되지 않습니다.';
 
 // 카카오 지도 SDK 를 미리 부른다(등록 도메인·http에서만). 실패하면 조용히 OSM 으로 간다.
-void preloadKakao();
+// 뜨면 좌표→주소(services)도 카카오로 — 도로명 주소. 아니면 리버스 지오코딩은 OSM.
+void preloadKakao().then((ok) => {
+  if (ok && kakaoServicesReady()) setPreferredProvider(kakaoReverseGeocode);
+});

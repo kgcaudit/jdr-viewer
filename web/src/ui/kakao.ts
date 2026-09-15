@@ -20,7 +20,8 @@ import type { MapBackend } from './map-backend';
 // ── SDK 로더 ────────────────────────────────────────
 // JS 키. 브라우저에 노출되는 값이라 도메인 제한이 유일한 보호막이다(§0).
 const KAKAO_JS_KEY = 'e1c60a373716a5f2e90363a1bf1a01d5';
-const SDK_URL = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false`;
+// libraries=services 로 좌표→주소(coord2Address)까지 같은 SDK 로 쓴다
+const SDK_URL = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false&libraries=services`;
 const LOAD_TIMEOUT_MS = 6000;
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'failed';
@@ -48,19 +49,25 @@ function mapOverride(): 'kakao' | 'osm' | null {
 /**
  * 카카오를 시도할 자격 판정.
  *
- * **현재 기본은 OSM 이다.** 카카오 적용은 뒤로 미뤘다 — 실측(카카오 데브톡/가이드)
- * 상 `file://` 로 직접 연 HTML 은 도메인을 등록해도 지도 라이브러리가 뜨지 않고,
- * 뜨는 길(http/https 서빙 + 도메인 등록)은 배포 방식 결정이 필요하기 때문이다.
+ * 호스팅(http/https · 등록 도메인)에서 카카오 지도·주소를 쓴다. 실측(카카오
+ * 데브톡/가이드)상 `file://` 로 직접 연 HTML 은 도메인 인증이 막혀 안 되고,
+ * localhost 는 기본 미등록이라 어차피 안 뜬다.
  *
- * 그래서 카카오는 **명시적으로 켤 때만**(`?map=kakao`, http/https) 시도하고, 그 외
- * 모든 경우(기본·`file://`·`?map=osm`·오프라인)는 OSM 으로 간다. 백엔드 코드는
- * 남겨 두었으니, 나중에 호스팅을 정하고 도메인을 등록하면 이 한 곳만 풀면 된다.
+ *   - `?map=osm`  → 무조건 OSM
+ *   - `?map=kakao`→ http/https 면 localhost 라도 카카오 시도(로컬 등록 시)
+ *   - 기본       → http/https + 비-localhost 면 카카오 시도(등록 호스팅), 그 외 OSM
+ * file://·localhost·오프라인·미등록은 SDK 로드 실패로 OSM 에 안전하게 떨어진다.
  */
 function eligible(): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
-  if (mapOverride() !== 'kakao') return false; // 기본 OSM — 명시적 opt-in 만 카카오
+  const ov = mapOverride();
+  if (ov === 'osm') return false;
   const p = window.location.protocol;
-  return p === 'http:' || p === 'https:';
+  if (p !== 'http:' && p !== 'https:') return false;
+  if (ov === 'kakao') return true;
+  const h = window.location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '::1' || h === '') return false;
+  return true;
 }
 
 /** SDK 를 한 번만 부른다. 성공하면 kakaoReady()가 참이 된다. 실패해도 조용히 대체된다. */
@@ -118,12 +125,49 @@ interface KakaoMaps {
   }) => KOverlayShape & { setPosition(ll: KLatLng): void };
   load(cb: () => void): void;
   event: { addListener(target: unknown, type: string, cb: (e: KMouseEvent) => void): void };
+  services?: {
+    Geocoder: new () => {
+      coord2Address(lng: number, lat: number, cb: (result: KAddr[], status: string) => void): void;
+    };
+    Status: { OK: string };
+  };
+}
+interface KAddr {
+  road_address?: { address_name?: string } | null;
+  address?: { address_name?: string } | null;
 }
 declare global {
   interface Window { kakao?: { maps?: KakaoMaps } }
 }
 
 const km = (): KakaoMaps => window.kakao!.maps!;
+
+/** 카카오 주소검색(services)까지 준비됐나 — 좌표→주소에 필요 */
+export function kakaoServicesReady(): boolean {
+  return kakaoReady() && !!window.kakao?.maps?.services?.Geocoder;
+}
+
+/**
+ * 카카오로 좌표 → 주소 (도로명 우선, 없으면 지번). 등록 도메인에서만 동작.
+ * 실패하면 빈 문자열. SDK services 가 브라우저 CORS 없이 처리한다.
+ */
+export function kakaoReverseGeocode(lat: number, lon: number): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const M = km();
+      if (!M.services) { resolve(''); return; }
+      const geocoder = new M.services.Geocoder();
+      const ok = M.services.Status?.OK ?? 'OK';
+      const timer = setTimeout(() => resolve(''), 8000);
+      geocoder.coord2Address(lon, lat, (result, status) => {
+        clearTimeout(timer);
+        if (status !== ok || !result || result.length === 0) { resolve(''); return; }
+        const r = result[0];
+        resolve(r.road_address?.address_name || r.address?.address_name || '');
+      });
+    } catch { resolve(''); }
+  });
+}
 
 /** 위/경도 유효행만 (0,0 미수신 제외) — Leaflet 백엔드와 같은 기준 */
 function validFixes(fixes: GpsFix[]): GpsFix[] {
