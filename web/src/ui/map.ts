@@ -122,4 +122,43 @@ export class GpsMap {
   invalidate(): void {
     this.map?.invalidateSize();
   }
+
+  /** 클릭한 좌표에서 가장 가까운 점 (2,000점이라도 한 번 훑으면 충분하다) */
+  private nearest(lat: number, lon: number): GpsFix | null {
+    let best: GpsFix | null = null;
+    let bestD = Infinity;
+    for (const g of this.fixes) {
+      const d = (g.lat - lat) ** 2 + (g.lon - lon) ** 2;
+      if (d < bestD) { bestD = d; best = g; }
+    }
+    return best;
+  }
+
+  /**
+   * 경로에 시각을 붙인다.
+   *
+   * 2,000점에 다 찍으면 글자가 뒤덮이므로 **누르면** 그 점 시각을 말풍선으로
+   * 보여주고, 시작·끝 지점에만 시각 라벨을 상시 표기한다.
+   * @param fmt  시각(ms) → 보여줄 문자열
+   * @param extra 점 하나에 덧붙일 설명(속도·활동 등) — 선택
+   */
+  enableTimeLabels(fmt: (ms: number) => string, extra?: (g: GpsFix) => string): void {
+    if (!this.map || !this.track || this.fixes.length === 0) return;
+    this.track.on('click', (e: L.LeafletMouseEvent) => {
+      const g = this.nearest(e.latlng.lat, e.latlng.lng);
+      if (!g || !this.map) return;
+      const body = `<strong>${fmt(g.timeMs)}</strong>${extra ? `<br>${extra(g)}` : ''}`;
+      L.popup({ closeButton: false }).setLatLng([g.lat, g.lon]).setContent(body).openOn(this.map);
+    });
+    const first = this.fixes[0];
+    const last = this.fixes[this.fixes.length - 1];
+    const label = (g: GpsFix, text: string): void => {
+      if (!this.map) return;
+      L.circleMarker([g.lat, g.lon], { radius: 5, color: '#fff', weight: 2, fillColor: '#2f855a', fillOpacity: 1 })
+        .addTo(this.map)
+        .bindTooltip(text, { permanent: true, direction: 'top', className: 'map-time-label' });
+    };
+    label(first, `출발 ${fmt(first.timeMs)}`);
+    if (last !== first) label(last, `끝 ${fmt(last.timeMs)}`);
+  }
 }

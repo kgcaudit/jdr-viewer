@@ -105,8 +105,12 @@ export function renderMoveDay(
       <span class="muted small">${num(day.points.length)}점 · ${escapeHtml(clock(start))}~${escapeHtml(clock(end))}</span>
     </div>
     <div id="move-map" class="map"></div>
+    <div class="move-scrub">
+      <input id="move-seek" class="seek" type="range" min="0" max="1000" value="0" aria-label="시각으로 위치 보기" />
+      <span id="move-seek-time" class="move-seek-time tnum">${escapeHtml(formatRecordedTime(start, false).slice(11, 19))}</span>
+    </div>
     <div class="map-bar">
-      <p class="muted small" style="margin:0">${escapeHtml(day.sources.join(', ') || '')}</p>
+      <p class="muted small" style="margin:0">${escapeHtml(day.sources.join(', ') || '')} · 경로를 눌러 시각을 봅니다</p>
       <span class="map-acts">
         <button class="btn btn-sm" type="button" id="move-fit">전체 경로</button>
       </span>

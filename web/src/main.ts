@@ -1761,8 +1761,22 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
   moveMap.resetFit();
   moveMap.render(day.points.map(moveFixToGps));
   moveMap.invalidate();
+  // 경로에 시각을 붙인다 — 눌러서 그 점 시각을, 시작·끝엔 라벨을
+  const hhmmss = (ms: number): string => formatRecordedTime(ms, false).slice(11, 19);
+  moveMap.enableTimeLabels(hhmmss, (g) => `${g.speed.toFixed(0)} km/h`);
   document.getElementById('move-fit')?.addEventListener('click', () => {
     if (!moveMap?.fitAll()) toast('표시할 경로가 없습니다');
+  });
+
+  // 시간 스크러버 — 끌면 표식이 궤적을 따라 움직이고 그 시각을 보여준다
+  const s0 = day.points[0].t;
+  const s1 = day.points[day.points.length - 1].t;
+  const seek = document.getElementById('move-seek') as HTMLInputElement | null;
+  const readout = document.getElementById('move-seek-time');
+  seek?.addEventListener('input', () => {
+    const abs = s0 + (Number(seek.value) / 1000) * (s1 - s0);
+    const f = moveMap?.syncTo(abs);
+    if (readout) readout.textContent = f ? hhmmss(f.timeMs) : '--:--:--';
   });
 }
 

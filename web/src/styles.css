@@ -203,6 +203,13 @@ body {
 .move-day-src { grid-column: 1 / -1; font-size: 11px; }
 .move-detail-head { display: flex; align-items: center; gap:10px; flex-wrap: wrap; margin-bottom:10px; }
 #move-map { height: 300px; margin-bottom:8px; }
+.move-scrub { display: flex; align-items: center; gap:10px; margin:2px 0 8px; }
+.move-scrub .seek { flex: 1 1 auto; }
+.move-seek-time { flex: 0 0 auto; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 4.6em; text-align: right; }
+.map-time-label {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding:1px 6px; font-size: 11px; font-weight: 600; box-shadow: none;
+}
 
 /* ── 로딩 ───────────────────────────── */
 .loading { max-width: 480px; margin:12vh auto; text-align: center; }

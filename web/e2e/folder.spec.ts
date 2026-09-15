@@ -1645,3 +1645,25 @@ test('이동기록 — 폴더째 올리면 파일들이 날짜별로 병합된�
   await expect(page.locator('[data-day="2026-09-12"]')).toContainText('2점'); // 두 파일 병합
   rmSync(sub, { recursive: true, force: true });
 });
+
+test('이동기록 상세 — 시간 스크러버로 시각을 본다', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  const rows = [];
+  for (let i = 0; i < 6; i++) rows.push({ timestamp:`2026-09-12 08:0${i}:00`, latitude:37.50+i*0.001, longitude:127.00+i*0.001, accuracy:10, speed:i*4, battery:80, address:'', provider:'gps', activity_type:'WALKING', staytime:0 });
+  const f = join(dir, 'scrub.txt'); writeFileSync(f, JSON.stringify({ success:true, data:[rows], errors:[] }));
+  await page.locator('#move-file-input').setInputFiles([f]);
+  await page.waitForTimeout(300);
+  await page.locator('[data-day="2026-09-12"]').click();
+  await page.waitForTimeout(400);
+
+  // 처음엔 시작 시각
+  await expect(page.locator('#move-seek-time')).toHaveText('08:00:00');
+  // 끝까지 끌면 마지막 점 시각(08:05)
+  await page.locator('#move-seek').fill('1000');
+  await page.locator('#move-seek').dispatchEvent('input');
+  await expect(page.locator('#move-seek-time')).toHaveText('08:05:00');
+  // 시작·끝 라벨이 지도에 뜬다
+  await expect(page.locator('.map-time-label').first()).toBeVisible();
+});
+
