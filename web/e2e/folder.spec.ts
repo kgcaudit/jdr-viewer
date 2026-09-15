@@ -1623,6 +1623,49 @@ test('대조 — 블랙박스 스캔이 저장한 차량 GPS로 이 차량 주�
 });
 
 
+test('이동기록 — 차량 JDR 폴더를 열면 GPS만 뽑아 저장하고 자동 대조한다', async ({ page }) => {
+  // 블랙박스 공간을 거치지 않고 이동기록에서 바로 차량 JDR 폴더를 연다.
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  await page.locator('#car-folder-input').setInputFiles(dir);
+
+  // 스캔이 끝나면 차량 GPS가 날짜별로 저장돼 있다 (영상은 읽지 않았다).
+  // DB는 앱이 먼저 만들도록 두고(직접 열어 빈 채로 선점하지 않는다), 생길 때까지 폴링한다.
+  const readCar = async (): Promise<{ t: number; lat: number; lon: number }[]> => page.evaluate(async () => {
+    const dbs = (await indexedDB.databases?.()) ?? [];
+    if (!dbs.some((d) => d.name === 'jdr-viewer-cartrack')) return [];
+    const db: IDBDatabase = await new Promise((res, rej) => {
+      const r = indexedDB.open('jdr-viewer-cartrack');
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    if (!db.objectStoreNames.contains('days')) { db.close(); return []; }
+    const doc: any = await new Promise((res, rej) => {
+      const tx = db.transaction('days', 'readonly');
+      const rq = tx.objectStore('days').get('2026-09-08');
+      rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+    });
+    db.close();
+    return doc ? doc.points.slice(0, 4).map((p: any) => ({ t: p.t, lat: p.lat, lon: p.lon })) : [];
+  });
+  await expect.poll(async () => (await readCar()).length, { timeout: 60_000 }).toBeGreaterThan(0);
+  const carPts = await readCar();
+
+  // 같은 시각·좌표의 휴대폰 기록을 얹으면 자동 대조되어 '이 차량 주행'이 나온다.
+  const rows = carPts.map((p) => ({
+    timestamp: new Date(p.t).toISOString().slice(0, 19).replace('T', ' '),
+    latitude: p.lat, longitude: p.lon, accuracy: 8, speed: 40,
+    battery: 80, address: '', provider: 'gps', activity_type: 'IN_VEHICLE', staytime: 0,
+  }));
+  const phoneFile = join(dir, 'phone-carfolder.txt');
+  writeFileSync(phoneFile, JSON.stringify({ success: true, data: [rows], errors: [] }));
+  await page.locator('#move-file-input').setInputFiles([phoneFile]);
+  await page.waitForTimeout(300);
+  await page.locator('[data-day="2026-09-08"]').click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('.track-bars')).toContainText('이 차량 주행');
+});
+
+
 test('이동기록 — 폴더째 올리면 파일들이 날짜별로 병합된다', async ({ page }) => {
   await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
   await page.locator('#btn-move-enter').click();

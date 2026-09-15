@@ -18,7 +18,7 @@ import { probeSegment, type SegmentInfo } from './core/segment';
 import { formatDuration, formatDurationKo, formatRecordedTime, formatShortDate } from './core/time';
 import type { GpsFix, JdrDocument, ParseProgress } from './core/types';
 import { JdrParseJob } from './parse-client';
-import { MergedRecords, RecordScanJob } from './scan-client';
+import { MergedRecords, RecordScanJob, type ScanItemInput } from './scan-client';
 import { FileSegmentLoader } from './player/loader';
 import { SequencePlayer } from './player/sequence';
 import { hasWebCodecs } from './player/index';
@@ -31,10 +31,10 @@ import { preloadKakao, kakaoServicesReady, kakaoReverseGeocode, kakaoDiag } from
 import { setPreferredProvider } from './core/geocode';
 import { TimeCharts } from './ui/charts';
 import { renderRangeExport } from './ui/range-export';
-import { parsePhoneTrack } from './core/phone-track';
+import { parsePhoneTrack, isValidLatLon } from './core/phone-track';
 import { matchTracks, type MatchResult } from './core/track-match';
 import {
-  MoveStore, MOVE_FILE_NAME, movePointToFix, serializeMoveDays,
+  MoveStore, MOVE_FILE_NAME, movePointToFix, serializeMoveDays, dayKeyOf,
   type MoveDay, type MoveDaySummary, type MovePoint,
 } from './core/move-store';
 import { renderMoveList, renderMoveDay, trackMatchCsv, renderMoveOverview, overviewCsv, type DayOverview } from './ui/move-panel';
@@ -179,6 +179,7 @@ function applyTopbar(): void {
         primary = [{ id: 'move-day-back', label: '‹ 목록', onClick: moveBack }];
         more = [
           { id: 'move-compare', label: '블랙박스와 대조', onClick: moveCompare },
+          { id: 'car-folder', label: '차량 폴더 열어 자동 대조', onClick: carFolderUpload },
           { id: 'car-csv', label: '차량 GPS(CSV) 불러오기', onClick: carCsvUpload },
           { id: 'move-export-csv', label: '대조 결과 CSV', onClick: moveCsv },
           { id: 'move-delete', label: '이 날짜 지우기', onClick: moveDelete },
@@ -190,6 +191,7 @@ function applyTopbar(): void {
         more = [
           { id: 'move-upload', label: '파일 열기(위치·차량)', onClick: moveUpload },
           { id: 'move-folder-upload', label: '폴더 열기', onClick: moveFolderUpload },
+          { id: 'car-folder', label: '차량 폴더 열어 자동 대조', onClick: carFolderUpload },
           { id: 'car-csv', label: '차량 GPS(CSV) 불러오기', onClick: carCsvUpload },
           { id: 'move-export', label: '파일로 저장', onClick: moveExport },
           { id: 'move-clear-all', label: '전체 삭제', onClick: moveClearAll },
@@ -1928,6 +1930,125 @@ function moveDelete(): void {
   void moveStore.removeDay(dayKey).then(() => { toast('지웠습니다'); backToMoveList(); });
 }
 function carCsvUpload(): void { $('car-csv-input').click(); }
+function carFolderUpload(): void { $('car-folder-input').click(); }
+
+/**
+ * JDR 폴더에서 차량 GPS만 훑어 SegmentInfo를 만든다 (달력·재생 없이).
+ *
+ * 인덱스 파일·브라우저 캐시를 먼저 보고, 없는 파일만 헤더 512바이트를 읽는다.
+ * 영상·음성 본문은 건드리지 않는다 — 다음 단계의 GPS 스캔도 인덱스 테이블만 본다.
+ */
+async function probeJdrFolder(all: File[]): Promise<{ segments: SegmentInfo[]; files: Map<string, File> }> {
+  const jdrFiles = all.filter((f) => f.name.toLowerCase().endsWith('.jdr'));
+  const segments: SegmentInfo[] = [];
+  const files = new Map<string, File>();
+  if (jdrFiles.length === 0) return { segments, files };
+
+  const rawPaths = jdrFiles.map((f) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name);
+  const root = commonRootPrefix(rawPaths);
+
+  let indexMap = new Map<string, IndexEntry>();
+  const indexFile = findIndexFile(all);
+  if (indexFile) { try { indexMap = parseIndexFile(await indexFile.text()); } catch { /* 못 쓰면 직접 읽는다 */ } }
+
+  const keys = jdrFiles.map(cacheKeyOf);
+  const cached = await probeCache.getMany(keys);
+  const toStore: ReturnType<typeof toCacheValue>[] = [];
+
+  for (let i = 0; i < jdrFiles.length; i++) {
+    const f = jdrFiles[i];
+    const path = rawPaths[i].startsWith(root) ? rawPaths[i].slice(root.length) : rawPaths[i];
+    const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    const meta = { name: f.name, path, folder, size: f.size };
+    const entry = indexMap.get(path);
+    const hit = cached.get(keys[i]);
+    let seg: SegmentInfo;
+    if (entry && indexMatches(entry, f)) seg = entryToSegment(entry, meta);
+    else if (hit) seg = fromCacheValue(hit, meta);
+    else {
+      seg = await probeSegment({ src: new BlobByteSource(f, f.name), name: f.name, path, size: f.size });
+      toStore.push(toCacheValue(keys[i], seg));
+    }
+    segments.push(seg);
+    files.set(seg.id, f);
+    if ((i & 31) === 0) {
+      $('loading-detail').textContent = `${num(i + 1)} / ${num(jdrFiles.length)}개 훑는 중`;
+      setBar((i / jdrFiles.length) * 100);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  void probeCache.putMany(toStore);
+  return { segments, files };
+}
+
+/**
+ * 차량 JDR 폴더를 열어 **GPS만** 뽑아 날짜별로 저장하고, 곧바로 자동 대조한다.
+ *
+ * 블랙박스 공간으로 넘어갈 필요 없이 이동기록에서 완결한다. 영상은 읽지 않고
+ * 인덱스 테이블에서 GPS 패킷만 골라 읽으므로 45GB 폴더도 실제로 읽는 양은
+ * 수십 MB 수준이다. 저장분은 CSV 불러오기와 같은 저장소(carStore)를 쓴다.
+ */
+async function ingestCarFolder(files: File[]): Promise<void> {
+  const jdrFiles = files.filter((f) => f.name.toLowerCase().endsWith('.jdr'));
+  if (jdrFiles.length === 0) { toast('폴더 안에서 .jdr 파일을 찾지 못했습니다'); return; }
+
+  // 스캔 동안 로딩 화면을 잠깐 빌린다. 끝나면 이동기록 상태로 되돌린다.
+  const wasDetail = moveDetailOpen;
+  const wasOverview = moveOverviewOpen;
+  const dayBefore = moveCurrentDayKey;
+
+  showView('loading');
+  $('loading-phase').textContent = '차량 GPS를 뽑는 중… (영상은 읽지 않습니다)';
+  $('loading-detail').textContent = `${num(jdrFiles.length)}개 파일`;
+  setBar(0);
+
+  const { segments, files: fileMap } = await probeJdrFolder(files);
+  const items: ScanItemInput[] = segments
+    .filter((s) => !s.error && s.gpsCount > 0)
+    .map((seg) => ({ seg, file: fileMap.get(seg.id) }))
+    .filter((x): x is ScanItemInput => !!x.file);
+
+  const restore = (): void => {
+    if (wasDetail && dayBefore) { void compareDay(dayBefore); return; }
+    if (wasOverview) { void enterMoveOverview(); return; }
+    enterMove();
+  };
+
+  if (items.length === 0) {
+    toast('폴더에서 GPS가 있는 구간을 찾지 못했습니다');
+    restore();
+    return;
+  }
+
+  $('loading-phase').textContent = '차량 GPS를 뽑는 중… (영상은 읽지 않습니다)';
+  const byDay = new Map<string, CarPoint[]>();
+  const job = new RecordScanJob();
+  await job.run(items, (chunk) => {
+    for (const g of chunk.gps) {
+      if (!Number.isFinite(g.timeMs) || !isValidLatLon(g.lat, g.lon)) continue;
+      const key = dayKeyOf(g.timeMs);
+      let arr = byDay.get(key);
+      if (!arr) { arr = []; byDay.set(key, arr); }
+      arr.push({ t: g.timeMs, lat: g.lat, lon: g.lon });
+    }
+    $('loading-detail').textContent = `${num(chunk.done)} / ${num(chunk.total)}개 구간 · ${num(byDay.size)}일`;
+    setBar((chunk.done / chunk.total) * 100);
+  });
+
+  let total = 0;
+  for (const [dayKey, points] of byDay) {
+    if (points.length === 0) continue;
+    if ((await carStore.putMerge(dayKey, points)) >= 0) total += points.length;
+  }
+  toast(total > 0 ? `차량 GPS ${num(total)}점 저장 · ${num(byDay.size)}일 (영상 미열람)` : '저장할 차량 GPS가 없습니다');
+
+  await refreshMoveList();
+  // 상세를 보고 있었고 그 날짜가 채워졌으면 즉시 대조, 아니면 전체 요약으로
+  if (wasDetail && dayBefore && byDay.has(dayBefore)) { void compareDay(dayBefore); return; }
+  moveDays = await moveStore.listDays();
+  if (moveDays.length > 0) { void enterMoveOverview(); return; }
+  enterMove();
+}
 
 /** 차량 GPS CSV 를 날짜별로 파싱해 저장하고, 현재 날짜면 바로 대조한다 */
 async function ingestCarCsv(files: FileList | File[]): Promise<void> {
@@ -1965,7 +2086,7 @@ async function moveExport(): Promise<void> {
 async function compareDay(dayKey: string): Promise<void> {
   const car = await carStore.getDay(dayKey);
   if (car.length === 0) {
-    toast('차량 GPS가 없습니다 — ⋯ → 차량 GPS(CSV) 불러오기, 또는 그날 블랙박스를 한 번 스캔하세요');
+    toast('차량 GPS가 없습니다 — ⋯ → 차량 폴더 열어 자동 대조 (또는 차량 GPS(CSV) 불러오기)');
     return;
   }
   const day = await moveStore.getDay(dayKey);
@@ -2031,6 +2152,12 @@ $<HTMLInputElement>('car-csv-input').addEventListener('change', (e) => {
   const files = Array.from(input.files ?? []);
   input.value = '';
   void ingestCarCsv(files);
+});
+$<HTMLInputElement>('car-folder-input').addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  void ingestCarFolder(files);
 });
 
 $<HTMLInputElement>('bm-file-input').addEventListener('change', async (e) => {
