@@ -1691,8 +1691,9 @@ test('이동기록 상세 — 한 자리에 머물면 머문 곳과 머문 시�
   await expect(stay.locator('.stay-item')).toHaveCount(1);
   await expect(stay.locator('.stay-item').first()).toContainText('20분');
   await expect(stay.locator('.stay-item').first()).toContainText('집');
-  // 순번 배지(1)가 카드에 뜬다
+  // 순번 배지(1)가 카드에 뜬다 — 누르면 지도 중심 이동(클릭 가능해야 함)
   await expect(stay.locator('.stay-rank').first()).toHaveText('1');
+  await stay.locator('.stay-rank').first().click();
   // 지도에도 번호 배지 핀 + 머문 시간 라벨이 뜬다 (OSM 백엔드)
   await expect(page.locator('.stay-pin').first()).toBeVisible();
   await expect(page.locator('.map-stay-label').first()).toBeVisible();

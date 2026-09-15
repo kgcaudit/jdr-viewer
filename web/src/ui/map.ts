@@ -112,6 +112,12 @@ export class LeafletBackend implements MapBackend {
     return this.current ?? this.fixes[0] ?? null;
   }
 
+  /** 특정 좌표로 중심 이동 (머문 곳 번호 클릭). 배율은 거리 이름이 보이게 당긴다. */
+  centerOn(lat: number, lon: number): void {
+    if (!this.map) return;
+    this.map.setView([lat, lon], Math.max(this.map.getZoom(), FOCUS_ZOOM));
+  }
+
   /** 전체 경로가 다 보이도록 다시 맞춘다 (사용자가 눌렀을 때만) */
   fitAll(): boolean {
     if (!this.map || !this.track) return false;
@@ -239,6 +245,7 @@ export class GpsMap implements MapBackend {
   render(fixes: GpsFix[]): { shown: number; dropped: number } { return this.backend.render(fixes); }
   syncTo(absTimeMs: number): GpsFix | null { return this.backend.syncTo(absTimeMs); }
   showCurrent(): GpsFix | null { return this.backend.showCurrent(); }
+  centerOn(lat: number, lon: number): void { this.backend.centerOn(lat, lon); }
   fitAll(): boolean { return this.backend.fitAll(); }
   resetFit(): void { this.backend.resetFit(); }
   invalidate(): void { this.backend.invalidate(); }

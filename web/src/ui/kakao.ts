@@ -254,6 +254,12 @@ export class KakaoBackend implements MapBackend {
     return g;
   }
 
+  centerOn(lat: number, lon: number): void {
+    if (!this.map) return;
+    this.map.setCenter(new (km().LatLng)(lat, lon));
+    if (this.map.getLevel() > FOCUS_LEVEL) this.map.setLevel(FOCUS_LEVEL);
+  }
+
   fitAll(): boolean {
     if (!this.map || this.fixes.length === 0) return false;
     const M = km();

@@ -35,7 +35,7 @@ function staysBlock(stays: Stay[]): string {
   }
   const sum = staysSummary(stays);
   const items = stays.map((s, i) => `<li class="stay-item">
-      <span class="stay-rank">${num(i + 1)}</span>
+      <button type="button" class="stay-rank" data-stay-focus="${i}" title="지도에서 이 지점 보기" aria-label="지도에서 ${num(i + 1)}번 지점 보기">${num(i + 1)}</button>
       <div class="stay-body">
         <div class="stay-dur">${escapeHtml(formatDurationKo(s.durationMs / 1000))}</div>
         <div class="stay-meta tnum">${escapeHtml(clock(s.fromMs))} ~ ${escapeHtml(clock(s.toMs))}</div>

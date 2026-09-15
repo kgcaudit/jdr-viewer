@@ -135,6 +135,7 @@ body {
 @media (hover: hover) and (pointer: fine) {
   .space-switch:hover { background: var(--surface-2); }
   .menu-item:hover { background: var(--surface-2); }
+  .stay-rank:hover { transform: scale(1.08); }
 }
 
 /* ── 공통 ───────────────────────────── */
@@ -279,7 +280,11 @@ body {
   background:var(--stay); color:#fff; font-weight:800; font-size:13px;
   display:flex; align-items:center; justify-content:center;
   box-shadow:0 0 0 4px var(--stay-halo);
+  border:0; padding:0; font-family:inherit; cursor:pointer;
+  transition: transform .1s ease;
 }
+.stay-rank:focus-visible { outline:2px solid var(--stay); outline-offset:3px; }
+.stay-rank:active { transform: scale(0.92); }
 .stay-body { min-width:0; flex:1 1 auto; }
 .stay-dur { font-size:15px; font-weight:800; color:var(--text); line-height:1.2; }
 .stay-meta { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:1px; }

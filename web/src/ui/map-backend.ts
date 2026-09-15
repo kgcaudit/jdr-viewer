@@ -14,6 +14,8 @@ export interface MapBackend {
   syncTo(absTimeMs: number): GpsFix | null;
   /** 지금 지점이 보이게 화면을 옮긴다 (누를 때만) */
   showCurrent(): GpsFix | null;
+  /** 특정 좌표로 지도 중심을 옮긴다 (머문 곳 번호를 누를 때). 배율은 거리 보이게 당긴다 */
+  centerOn(lat: number, lon: number): void;
   /** 전체 경로가 다 보이게 맞춘다 */
   fitAll(): boolean;
   /** 다음 render 때 다시 화면을 맞추게 한다 */

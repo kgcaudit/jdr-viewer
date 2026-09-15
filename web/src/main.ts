@@ -1781,6 +1781,16 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
     if (!moveMap?.fitAll()) toast('표시할 경로가 없습니다');
   });
 
+  // 머문 곳 번호 동그라미를 누르면 지도 중심을 그 지점으로 (첫 화면은 전체 경로가 기본)
+  $('move-detail').querySelectorAll<HTMLButtonElement>('[data-stay-focus]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const s = stays[Number(b.dataset.stayFocus)];
+      if (!s) return;
+      moveMap?.centerOn(s.lat, s.lon);
+      document.getElementById('move-map')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
+
   // 머문 곳 주소 채우기(리버스 지오코딩) — 원본에 주소가 없는 체류만, OSM으로
   void fillStayAddresses(stays, day.dayKey, hhmm);
 
