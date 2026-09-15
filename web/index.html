@@ -29,7 +29,7 @@
     <input id="bm-file-input" type="file" accept=".json,application/json" hidden />
     <input id="file-input" type="file" accept=".jdr,application/octet-stream" hidden />
     <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
-    <input id="move-file-input" type="file" accept=".txt,.json,application/json,text/plain" multiple hidden />
+    <input id="move-file-input" type="file" accept=".txt,.json,.csv,application/json,text/plain,text/csv" multiple hidden />
     <input id="move-folder-input" type="file" webkitdirectory directory multiple hidden />
     <input id="car-csv-input" type="file" accept=".csv,text/csv" multiple hidden />
 
@@ -103,6 +103,7 @@
       <div class="move-wrap">
         <div id="move-list"></div>
         <div id="move-detail" hidden></div>
+        <div id="move-overview" hidden></div>
       </div>
     </main>
 

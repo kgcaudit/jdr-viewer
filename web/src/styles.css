@@ -253,6 +253,27 @@ body {
   padding:1px 8px; font-size:11px; font-weight:800; white-space:nowrap;
 }
 
+/* ── 전체 요약(여러 날짜) ───────────── */
+.ov-head { display:flex; align-items:baseline; gap:8px; margin:10px 0 8px; }
+.ov-head strong { font-size:16px; font-weight:800; }
+.ov-total { border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; margin-bottom:10px; background:var(--surface); }
+.ov-bar { display:flex; height:12px; border-radius:999px; overflow:hidden; background:var(--surface-2); }
+.ov-bar span { display:block; height:100%; }
+.ov-legend { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:8px; }
+.ov-leg { font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:5px; }
+.ov-days { display:flex; flex-direction:column; gap:8px; }
+.ov-day { display:block; width:100%; text-align:left; font:inherit; color:var(--text);
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; cursor:pointer; }
+.ov-day-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:7px; }
+.ov-day-top strong { font-size:14px; font-weight:800; }
+.ov-car { font-size:11px; font-weight:700; padding:1px 8px; border-radius:999px; }
+.ov-car-on { background:#2b6cb0; color:#fff; }
+.ov-car-off { background:var(--surface-2); color:var(--muted); }
+.ov-day-meta { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:12px; color:var(--muted); margin-top:7px; }
+.ov-day-meta b { color:var(--text); font-weight:700; }
+.ov-hot b { color:var(--warn); }
+@media (hover: hover) and (pointer: fine) { .ov-day:hover { background:var(--surface-2); } }
+
 /* ── 머문 곳(체류) — 도드라지는 카드 ─────
  * 감사에서 "어디 얼마나 머물렀나"가 가장 중요한 정보라, 회색 표에 묻히지 않게
  * 주황 강조 패널 + 순번 배지 + 큰 머문 시간으로 시선을 끈다. */

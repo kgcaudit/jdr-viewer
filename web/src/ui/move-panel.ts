@@ -155,6 +155,98 @@ export function renderMoveDay(
     ${table}`;
 }
 
+// ── 전체 요약(여러 날짜 한눈에) ─────────────────────
+
+/** 하루 분석 요약 (전체 요약 화면·CSV용) */
+export interface DayOverview {
+  dayKey: string;
+  count: number;
+  startMs: number;
+  endMs: number;
+  hasCar: boolean;
+  classMs: Record<TrackClass, number>;
+  spanTotal: number;
+  stays: number;
+  stayMs: number;
+}
+
+function zeroClass(): Record<TrackClass, number> {
+  return { in_vehicle_this: 0, walking: 0, moving_other: 0, stationary: 0, unknown: 0 };
+}
+const durKo = (ms: number): string => formatDurationKo(ms / 1000);
+
+/** 구분 비율을 가로 막대 하나로 (색은 지도·상세와 같은 팔레트) */
+function miniBar(cm: Record<TrackClass, number>, total: number): string {
+  const segs = ORDER.filter((k) => cm[k] > 0).map((k) =>
+    `<span style="width:${((cm[k] / total) * 100).toFixed(1)}%;background:${MOVE_CLASS_COLOR[k]}" title="${CLASS_LABEL[k]}"></span>`).join('');
+  return `<div class="ov-bar">${segs || '<span style="width:100%;background:var(--surface-2)"></span>'}</div>`;
+}
+
+/** 여러 날짜 분석을 한 화면에. 날짜를 누르면 그 날 상세로. */
+export function renderMoveOverview(el: HTMLElement, list: DayOverview[], h: MoveListHandlers): void {
+  if (list.length === 0) {
+    el.innerHTML = `<p class="muted small" style="margin-top:14px">분석할 이동기록이 없습니다. 먼저 ⋯로 도와줘 파일과 차량 CSV를 올리세요.</p>`;
+    return;
+  }
+  const tot = zeroClass();
+  let totStay = 0; let totStays = 0; let carDays = 0;
+  for (const d of list) {
+    for (const k of ORDER) tot[k] += d.classMs[k];
+    totStay += d.stayMs; totStays += d.stays; if (d.hasCar) carDays++;
+  }
+  const grand = ORDER.reduce((s, k) => s + tot[k], 0) || 1;
+
+  const legend = ORDER.filter((k) => tot[k] > 0).map((k) =>
+    `<span class="ov-leg"><span class="track-dot" style="background:${MOVE_CLASS_COLOR[k]}"></span>${CLASS_LABEL[k]} ${durKo(tot[k])}</span>`).join('');
+
+  const cards = list.map((d) => {
+    const span = d.spanTotal || 1;
+    const carBadge = d.hasCar
+      ? `<span class="ov-car ov-car-on">차량 대조됨</span>`
+      : `<span class="ov-car ov-car-off">차량 없음</span>`;
+    const other = d.classMs.moving_other;
+    return `<button class="ov-day" type="button" data-day="${escapeHtml(d.dayKey)}">
+      <div class="ov-day-top">
+        <strong>${escapeHtml(formatShortDate(d.dayKey))}</strong>
+        ${carBadge}
+        <span class="muted small">${num(d.count)}점 · ${escapeHtml(clock(d.startMs))}~${escapeHtml(clock(d.endMs))}</span>
+      </div>
+      ${miniBar(d.classMs, span)}
+      <div class="ov-day-meta">
+        ${d.hasCar ? `<span>이 차량 주행 <b>${durKo(d.classMs.in_vehicle_this)}</b></span>` : ''}
+        <span class="ov-hot">차량 없이 이동 <b>${durKo(other)}</b></span>
+        <span>머문곳 ${num(d.stays)}곳 · ${durKo(d.stayMs)}</span>
+      </div>
+    </button>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="ov-head"><strong>전체 요약</strong> <span class="muted small">${num(list.length)}일 · 차량 대조 ${num(carDays)}일</span></div>
+    <div class="ov-total">
+      ${miniBar(tot, grand)}
+      <div class="ov-legend">${legend}</div>
+      <p class="muted small" style="margin:6px 0 0">머문곳 합계 ${num(totStays)}곳 · ${durKo(totStay)} · 날짜를 누르면 그날 상세로</p>
+    </div>
+    <div class="ov-days">${cards}</div>`;
+
+  el.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) => {
+    b.addEventListener('click', () => h.onOpenDay(b.dataset.day ?? ''));
+  });
+}
+
+/** 전체 요약을 CSV로 (날짜별 구분 시간·차량유무·머문곳) */
+export function overviewCsv(list: DayOverview[]): string {
+  const head = ['날짜', '점수', '시작', '끝', '차량GPS', '이차량주행_분', '다른이동_분', '보행_분', '체류_분', '머문곳', '총체류_분'];
+  const m = (ms: number): number => Math.round(ms / 60000);
+  const rows = list.map((d) => [
+    d.dayKey, d.count, clock(d.startMs), clock(d.endMs), d.hasCar ? 'Y' : 'N',
+    m(d.classMs.in_vehicle_this), m(d.classMs.moving_other), m(d.classMs.walking), m(d.classMs.stationary),
+    d.stays, m(d.stayMs),
+  ]);
+  const esc = (v: string): string => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  return '﻿' + [head, ...rows].map((r) => r.map((c) => esc(String(c))).join(',')).join('\r\n') + '\r\n';
+}
+
 /** 대조 결과를 CSV로 (감사 근거: 원 좌표·판정을 모두 남긴다) */
 export function trackMatchCsv(m: MatchResult): string {
   const head = ['시각', '위도', '경도', '구분', '활동유형', '체류시간_초', '이동속도_kmh', '차량거리_m', '정확도_m'];

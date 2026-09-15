@@ -1766,3 +1766,36 @@ test('이동기록 — 차량 GPS CSV 를 불러와 대조하면 "이 차량 주
   await expect(page.locator('.track-bars')).toContainText('이 차량 주행');
 });
 
+test('이동기록 — 도와줘·차량 CSV 를 한 번에 올리고 전체 요약으로 본다', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  const mkPhone = (d: string) => {
+    const rows = [0, 30, 60].map((s) => ({ timestamp:`${d} 09:0${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`,
+      latitude:37.5 + s*0.00001, longitude:127.0 + s*0.00001, accuracy:10, speed:40, battery:80, address:'', provider:'gps', activity_type:'IN_VEHICLE', staytime:5 }));
+    return JSON.stringify({ success:true, data:[rows], errors:[] });
+  };
+  const HEAD = 'packet_time,gps_time,source_file,pdop,hdop,vdop,latitude_nmea,longitude_nmea,latitude_deg,longitude_deg,altitude_m,speed_kmh';
+  const carCsv = [HEAD, ...[0,30,60].map((s)=>`2026-09-12 09:0${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}.0,—,x.jdr,1,1,1,0,0,${(37.5+s*0.00001).toFixed(6)},${(127.0+s*0.00001).toFixed(6)},90,41`)].join('\n');
+  const p1 = join(dir, '2026.09.12.txt'); writeFileSync(p1, mkPhone('2026-09-12'));
+  const p2 = join(dir, '2026.09.13.txt'); writeFileSync(p2, mkPhone('2026-09-13'));
+  const c1 = join(dir, 'car0912.csv'); writeFileSync(c1, carCsv);
+
+  // 도와줘 txt 2개 + 차량 csv 1개를 한 번에 (내용으로 자동 구분)
+  await page.locator('#move-file-input').setInputFiles([p1, p2, c1]);
+  await page.waitForTimeout(400);
+  await expect(page.locator('.move-day')).toHaveCount(2);
+
+  // 전체 요약
+  await page.locator('#move-overview-btn').click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('#move-overview')).toBeVisible();
+  await expect(page.locator('.ov-day')).toHaveCount(2);
+  await expect(page.locator('.ov-car-on')).toHaveCount(1);   // 09-12 차량 대조됨
+  await expect(page.locator('.ov-car-off')).toHaveCount(1);  // 09-13 차량 없음
+
+  // 요약에서 날짜를 누르면 그날 상세로
+  await page.locator('.ov-day').first().click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('#move-detail')).toBeVisible();
+});
+
