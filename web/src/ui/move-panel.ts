@@ -130,8 +130,8 @@ export function renderMoveDay(
 
   const compareNote = compared
     ? `<p class="muted small">블랙박스 차량 GPS와 대조했습니다.</p>`
-    : `<p class="muted small">아직 차량과 대조하지 않았습니다 — 상단 <strong>⋯ → 블랙박스와 대조</strong>를 누르면
-       같은 날짜 차량 GPS를 끌어와 "이 차량 주행"까지 가립니다.</p>`;
+    : `<p class="muted small">아직 차량과 대조하지 않았습니다 — 상단 <strong>⋯ → 차량 GPS(CSV) 불러오기</strong>로
+       그날 블랙박스 GPS를 올리면(또는 블랙박스를 한 번 스캔) "이 차량 주행"까지 가립니다.</p>`;
 
   el.innerHTML = `
     <div class="move-detail-head">

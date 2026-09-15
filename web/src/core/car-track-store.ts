@@ -9,13 +9,59 @@
  * 열어 볼수록 그날 트랙이 채워진다.
  *
  * 개인정보 성격은 아니지만(내 차량 경로) 저장 위치는 브라우저 안이다.
+ *
+ * 또한 뷰어에서 뽑아 둔 **차량 GPS CSV를 직접 불러와** 저장할 수도 있다
+ * (무거운 JDR 을 다시 열지 않고 대조하려는 용도). parseCarCsv 참고.
  */
+import { parsePhoneTime, isValidLatLon } from './phone-track';
+import { formatRecordedTime } from './time';
 
 /** 저장용 차량 점 — 대조엔 시각·좌표만 필요하다 */
 export interface CarPoint {
   t: number;
   lat: number;
   lon: number;
+}
+
+export class CarCsvError extends Error {}
+
+/**
+ * 블랙박스에서 뽑은 차량 GPS CSV 를 날짜별 CarPoint 로 파싱한다.
+ *
+ * 뷰어가 내보내는 열: packet_time, gps_time, source_file, pdop, hdop, vdop,
+ * latitude_nmea, longitude_nmea, **latitude_deg, longitude_deg**, altitude_m, speed_kmh.
+ * 시각은 packet_time(기기 벽시계)을 쓰고, 위성 미수신(0,0)·범위 밖은 버린다.
+ * 하루를 넘길 수 있어 날짜별로 가른다(휴대폰 기록과 같은 벽시계 기준).
+ */
+export function parseCarCsv(text: string): Map<string, CarPoint[]> {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 2) throw new CarCsvError('차량 GPS CSV 가 비어 있습니다');
+  const head = lines[0].replace(/^﻿/, '').split(',').map((s) => s.trim().toLowerCase());
+  const iT = head.indexOf('packet_time');
+  const iLa = head.indexOf('latitude_deg');
+  const iLo = head.indexOf('longitude_deg');
+  if (iT < 0 || iLa < 0 || iLo < 0) {
+    throw new CarCsvError('차량 GPS CSV 형식이 아닙니다 (packet_time·latitude_deg·longitude_deg 열이 필요합니다)');
+  }
+  const need = Math.max(iT, iLa, iLo);
+  const out = new Map<string, CarPoint[]>();
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    const c = line.split(',');
+    if (c.length <= need) continue;
+    const lat = Number(c[iLa]);
+    const lon = Number(c[iLo]);
+    if (!isValidLatLon(lat, lon)) continue; // 0,0 미수신·범위 밖 제외
+    const t = parsePhoneTime(c[iT]);
+    if (!Number.isFinite(t)) continue;
+    const key = formatRecordedTime(t, false).slice(0, 10);
+    let arr = out.get(key);
+    if (!arr) { arr = []; out.set(key, arr); }
+    arr.push({ t, lat, lon });
+  }
+  if (out.size === 0) throw new CarCsvError('CSV 에서 유효한 차량 좌표를 찾지 못했습니다');
+  return out;
 }
 
 /** 초 단위로 뭉갠 키 (차량 GPS는 대략 1Hz라 초로 병합하면 자연히 하루 상한이 생긴다) */

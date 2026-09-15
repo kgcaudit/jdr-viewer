@@ -40,7 +40,7 @@ import {
 import { renderMoveList, renderMoveDay, trackMatchCsv } from './ui/move-panel';
 import { deriveStays, type Stay } from './core/stays';
 import { reverseGeocode } from './core/geocode';
-import { CarTrackStore, type CarPoint } from './core/car-track-store';
+import { CarTrackStore, parseCarCsv, type CarPoint } from './core/car-track-store';
 import {
   buildRange, isVideoKind, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange,
 } from './core/range-export';
@@ -171,6 +171,7 @@ function applyTopbar(): void {
         primary = [{ id: 'move-day-back', label: '‹ 목록', onClick: moveBack }];
         more = [
           { id: 'move-compare', label: '블랙박스와 대조', onClick: moveCompare },
+          { id: 'car-csv', label: '차량 GPS(CSV) 불러오기', onClick: carCsvUpload },
           { id: 'move-export-csv', label: '대조 결과 CSV', onClick: moveCsv },
           { id: 'move-delete', label: '이 날짜 지우기', onClick: moveDelete },
         ];
@@ -179,6 +180,7 @@ function applyTopbar(): void {
         more = [
           { id: 'move-upload', label: '파일 올리기', onClick: moveUpload },
           { id: 'move-folder-upload', label: '폴더 올리기', onClick: moveFolderUpload },
+          { id: 'car-csv', label: '차량 GPS(CSV) 불러오기', onClick: carCsvUpload },
           { id: 'move-export', label: '파일로 저장', onClick: moveExport },
           { id: 'move-clear-all', label: '전체 삭제', onClick: moveClearAll },
         ];
@@ -1867,6 +1869,28 @@ function moveDelete(): void {
   if (!dayKey || !confirm(`${dayKey} 이동기록을 지울까요?`)) return;
   void moveStore.removeDay(dayKey).then(() => { toast('지웠습니다'); backToMoveList(); });
 }
+function carCsvUpload(): void { $('car-csv-input').click(); }
+
+/** 차량 GPS CSV 를 날짜별로 파싱해 저장하고, 현재 날짜면 바로 대조한다 */
+async function ingestCarCsv(files: FileList | File[]): Promise<void> {
+  const affected = new Set<string>();
+  let total = 0;
+  for (const f of Array.from(files)) {
+    let text: string;
+    try { text = await f.text(); } catch { continue; }
+    let byDay: Map<string, CarPoint[]>;
+    try { byDay = parseCarCsv(text); } catch (e) { toast((e as Error).message); continue; }
+    for (const [dayKey, points] of byDay) {
+      const n = await carStore.putMerge(dayKey, points);
+      if (n >= 0) { affected.add(dayKey); total += points.length; }
+    }
+  }
+  if (total === 0) { toast('불러올 차량 GPS가 없습니다'); return; }
+  toast(`차량 GPS ${num(total)}점 불러옴 · ${affected.size}일`);
+  // 상세가 열려 있고 그 날짜가 포함되면 즉시 대조, 목록이면 그날 열 때 자동 대조된다
+  if (moveDetailOpen && affected.has(moveCurrentDayKey)) void compareDay(moveCurrentDayKey);
+}
+
 function moveClearAll(): void {
   if (moveDays.length === 0) { toast('지울 이동기록이 없습니다'); return; }
   if (!confirm(`모든 이동기록(${num(moveDays.length)}일)을 지울까요? 되돌릴 수 없습니다.`)) return;
@@ -1883,7 +1907,7 @@ async function moveExport(): Promise<void> {
 async function compareDay(dayKey: string): Promise<void> {
   const car = await carStore.getDay(dayKey);
   if (car.length === 0) {
-    toast('그 날짜 블랙박스를 한 번 열어 두면(스캔) 대조됩니다');
+    toast('차량 GPS가 없습니다 — ⋯ → 차량 GPS(CSV) 불러오기, 또는 그날 블랙박스를 한 번 스캔하세요');
     return;
   }
   const day = await moveStore.getDay(dayKey);
@@ -1926,6 +1950,12 @@ $<HTMLInputElement>('move-folder-input').addEventListener('change', (e) => {
   const files = Array.from(input.files ?? []);
   input.value = '';
   void ingestMoveFiles(files);
+});
+$<HTMLInputElement>('car-csv-input').addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  void ingestCarCsv(files);
 });
 
 $<HTMLInputElement>('bm-file-input').addEventListener('change', async (e) => {
