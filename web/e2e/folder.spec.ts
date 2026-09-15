@@ -1553,8 +1553,7 @@ test('이동기록 공간 — 다중 업로드·날짜별 병합·상세', async
     { t:'2026-09-13 09:00:00', la:37.53, lo:127.03, act:'WALKING' },
   ]));
 
-  // 두 파일을 한 번에 올린다
-  await page.locator('#move-upload').click();
+  // 두 파일을 한 번에 올린다 (숨은 입력에 바로 넣는다 — 올리기는 ⋯ 메뉴에 있음)
   await page.locator('#move-file-input').setInputFiles([morning, afternoon]);
   await page.waitForTimeout(300);
 
@@ -1575,7 +1574,6 @@ test('이동기록 공간 — 다중 업로드·날짜별 병합·상세', async
   // 같은 9/12에 새 시각을 더 올리면 병합되어 점이 는다 (4점)
   const more = join(dir, 'm3.txt');
   writeFileSync(more, mk([{ t:'2026-09-12 12:00:00', la:37.51, lo:127.01, act:'WALKING' }]));
-  await page.locator('#move-upload').click();
   await page.locator('#move-file-input').setInputFiles([more]);
   await page.waitForTimeout(300);
   await expect(page.locator('[data-day="2026-09-12"]')).toContainText('4점');
@@ -1615,7 +1613,6 @@ test('대조 — 블랙박스 스캔이 저장한 차량 GPS로 이 차량 주�
   // 2) 이동기록 공간으로 가서 올리고 그날을 연다 (같은 컨텍스트라 IndexedDB 유지)
   await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
   await page.locator('#btn-move-enter').click();
-  await page.locator('#move-upload').click();
   await page.locator('#move-file-input').setInputFiles([phoneFile]);
   await page.waitForTimeout(300);
   await page.locator('[data-day="2026-09-08"]').click();

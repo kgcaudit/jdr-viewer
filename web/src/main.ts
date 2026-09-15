@@ -175,8 +175,9 @@ function applyTopbar(): void {
           { id: 'move-delete', label: '이 날짜 지우기', onClick: moveDelete },
         ];
       } else {
-        primary = [{ id: 'move-upload', label: '위치기록 올리기', onClick: moveUpload, primary: true }];
+        primary = [];
         more = [
+          { id: 'move-upload', label: '파일 올리기', onClick: moveUpload },
           { id: 'move-folder-upload', label: '폴더 올리기', onClick: moveFolderUpload },
           { id: 'move-export', label: '파일로 저장', onClick: moveExport },
           { id: 'move-clear-all', label: '전체 삭제', onClick: moveClearAll },
