@@ -38,12 +38,31 @@ export function kakaoReady(): boolean {
  * http/https 에서만 SDK 를 부른다 — 그래야 헤드리스 e2e(로컬 http)도 네트워크가
  * 막히면 실패로 떨어져 OSM 으로 안전하게 대체된다.
  */
+function mapOverride(): 'kakao' | 'osm' | null {
+  try {
+    const v = new URLSearchParams(window.location.search).get('map');
+    return v === 'kakao' || v === 'osm' ? v : null;
+  } catch { return null; }
+}
+
+/**
+ * 카카오를 시도할 자격 판정.
+ *
+ * 실측(카카오 데브톡/가이드): `file://` 로 직접 연 HTML 은 도메인을 등록해도 지도
+ * **라이브러리가 뜨지 않는다**. 뜨는 길은 http/https 서빙 + 그 도메인 등록뿐이며,
+ * 로컬 서버 `http://localhost:PORT` 도 등록하면 된다. 그래서:
+ *   - `?map=osm`  → 무조건 OSM (테스트·강제 대체)
+ *   - `?map=kakao`→ http/https 면 localhost 라도 카카오 시도 (로컬 서버 등록한 경우)
+ *   - 기본       → http/https + 비-localhost 에서만 (등록 호스팅), file://·localhost 는 OSM
+ * 기본에서 localhost 를 빼는 이유: 등록 안 한 로컬·헤드리스 e2e 가 결정론적으로 OSM.
+ */
 function eligible(): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+  const ov = mapOverride();
+  if (ov === 'osm') return false;
   const p = window.location.protocol;
   if (p !== 'http:' && p !== 'https:') return false;
-  // localhost/루프백은 카카오에 기본 미등록이라 어차피 안 뜬다(가이드 §2). 시도하지
-  // 않아 로컬 개발·헤드리스 e2e 는 늘 OSM 으로 결정론적으로 떨어진다.
+  if (ov === 'kakao') return true; // 로컬 서버에 localhost 를 등록한 경우 등
   const h = window.location.hostname;
   if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '::1' || h === '') return false;
   return true;
