@@ -29,6 +29,9 @@ import { hashSource } from './core/sha256';
 import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
 import { renderRangeExport } from './ui/range-export';
+import { parsePhoneTrack, PhoneTrackError, type PhoneFix } from './core/phone-track';
+import { matchTracks, type MatchResult } from './core/track-match';
+import { renderTrackPanel, trackMatchCsv } from './ui/track-panel';
 import {
   buildRange, isVideoKind, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange,
 } from './core/range-export';
@@ -75,6 +78,8 @@ interface PlaySession {
   player: SequencePlayer;
   records: MergedRecords;
   scan: RecordScanJob | null;
+  /** GPS·센서 스캔이 끝났는가 (동선 대조의 정확도 판단에 쓴다) */
+  scanDone: boolean;
   label: string;
   /** 지금 보고 있는 날짜와 운행 (-1 = 날짜 전체) */
   dayKey: string;
@@ -729,7 +734,7 @@ async function startPlaySession(
     toast, codecOverride,
   );
   session = {
-    merged, lib, loader, player, records: new MergedRecords(), scan: null, label,
+    merged, lib, loader, player, records: new MergedRecords(), scan: null, scanDone: false, label,
     dayKey, sessionIndex,
   };
 
@@ -917,6 +922,9 @@ function startRecordScan(): void {
       chunk.done >= chunk.total
         ? `${s.label} 스캔 완료 · GPS ${num(s.records.gps.length)}건 · 센서 ${num(s.records.sensorCount)}건`
         : `${s.label} GPS·센서 스캔 중… ${num(chunk.done)} / ${num(chunk.total)}`;
+    if (chunk.done >= chunk.total) s.scanDone = true;
+    // 동선 탭이 열려 있으면 새로 모인 차량 GPS로 다시 맞춘다
+    if (document.getElementById('tab-track')?.classList.contains('is-active')) drawTrackPanel();
     const now = performance.now();
     if (chunk.done >= chunk.total || now - lastDraw > 1200) {
       lastDraw = now;
@@ -1548,6 +1556,68 @@ $('bm-overlay').addEventListener('click', (e) => {
   if (e.target === $('bm-overlay')) closeBookmarkPanel();
 });
 
+/** Blob을 다운로드한다 (브라우저는 폴더에 직접 못 써서 다운로드로 내보낸다) */
+function downloadFile(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+// ── 동선 대조 ───────────────────────────────────────
+//
+// 휴대폰 위치기록(도와줘)을 올려 그날 차량 GPS와 맞춘다. 차량 GPS는 뷰어가
+// 스캔으로 모아 둔 session.records.gps를 쓴다 — 인덱스에 이미 기록된 값이라
+// 원본을 다시 건드리지 않는다.
+let phoneTrack: PhoneFix[] | null = null;
+let trackMatch: MatchResult | null = null;
+
+function drawTrackPanel(): void {
+  const el = document.getElementById('track-panel');
+  if (!el) return;
+  const s = session;
+  const carGps = s?.records.gps ?? [];
+  // 휴대폰·차량 둘 다 있으면 대조한다. 스캔이 진행 중이면 늘어난 GPS로 다시 계산된다.
+  trackMatch = phoneTrack && carGps.length > 0 ? matchTracks(carGps, phoneTrack) : null;
+  renderTrackPanel(el, {
+    phone: phoneTrack,
+    carGpsCount: carGps.length,
+    scanDone: !!s && s.scanDone,
+    match: trackMatch,
+    hasSession: !!s,
+  }, {
+    onLoadFile: () => $('track-file-input').click(),
+    onExportCsv: () => {
+      if (!trackMatch) return;
+      const name = phoneTrack && phoneTrack.length
+        ? `dongseon_${formatRecordedTime(phoneTrack[0].timeMs, false).slice(0, 10)}.csv`
+        : 'dongseon.csv';
+      downloadFile(new Blob([trackMatchCsv(trackMatch)], { type: 'text/csv' }), name);
+      toast(`${name} 저장`);
+    },
+    onClear: () => { phoneTrack = null; trackMatch = null; drawTrackPanel(); },
+  });
+}
+
+$<HTMLInputElement>('track-file-input').addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    phoneTrack = parsePhoneTrack(await file.text());
+    if (phoneTrack.length === 0) { toast('좌표가 있는 위치기록이 없습니다'); }
+    else toast(`휴대폰 위치 ${num(phoneTrack.length)}점을 읽었습니다`);
+    drawTrackPanel();
+  } catch (err) {
+    toast(err instanceof PhoneTrackError ? err.message : (err instanceof Error ? err.message : String(err)));
+  }
+});
+
 $<HTMLInputElement>('bm-file-input').addEventListener('change', async (e) => {
   const input = e.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -1636,6 +1706,7 @@ document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
     if (tab.dataset.tab === 'sensor') charts?.resize();
     if (tab.dataset.tab === 'speech') drawSpeechPanel();
     if (tab.dataset.tab === 'export') drawRangeExport();
+    if (tab.dataset.tab === 'track') drawTrackPanel();
   });
 });
 
