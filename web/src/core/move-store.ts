@@ -26,6 +26,8 @@ export interface MovePoint {
   acc: number;
   /** OS 활동유형 */
   act: string;
+  /** 주소 라벨 (체류 지점 표기용). 옛 저장분엔 없을 수 있다. */
+  addr?: string;
 }
 
 /** 하루치 이동기록 (병합된 결과) */
@@ -48,7 +50,9 @@ export interface MoveDaySummary {
 }
 
 export function toMovePoint(f: PhoneFix): MovePoint {
-  return { t: f.timeMs, lat: f.lat, lon: f.lon, speed: f.rawSpeed, acc: f.accuracyM, act: f.activity };
+  const p: MovePoint = { t: f.timeMs, lat: f.lat, lon: f.lon, speed: f.rawSpeed, acc: f.accuracyM, act: f.activity };
+  if (f.address) p.addr = f.address;
+  return p;
 }
 
 export function movePointToFix(p: MovePoint): PhoneFix {

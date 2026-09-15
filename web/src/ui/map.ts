@@ -2,14 +2,20 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { GpsFix } from '../core/types';
+import type { Stay } from '../core/stays';
+import type { MapBackend } from './map-backend';
+import { KakaoBackend, kakaoReady } from './kakao';
 
 /** '현재 주행 위치'로 옮길 때 최소한 이만큼은 당긴다 (거리 이름이 보이는 배율) */
 const FOCUS_ZOOM = 17;
 
-export class GpsMap {
+/** OSM(Leaflet) 백엔드. file:// 실기기와 테스트가 늘 타는 확실한 길. */
+export class LeafletBackend implements MapBackend {
   private map: L.Map | null = null;
   private track: L.Polyline | null = null;
   private marker: L.CircleMarker | null = null;
+  /** 체류(머문 곳) 표식 묶음 — 다시 그릴 때 통째로 지운다 */
+  private stayLayer: L.LayerGroup | null = null;
   private fixes: GpsFix[] = [];
   /** 표식이 지금 놓인 지점 — '현재 주행 위치'가 돌려준다 */
   private current: GpsFix | null = null;
@@ -51,7 +57,7 @@ export class GpsMap {
   }
 
   render(fixes: GpsFix[]): { shown: number; dropped: number } {
-    const valid = GpsMap.validFixes(fixes);
+    const valid = LeafletBackend.validFixes(fixes);
     this.fixes = valid;
     if (valid.length === 0) return { shown: 0, dropped: fixes.length };
 
@@ -160,5 +166,82 @@ export class GpsMap {
     };
     label(first, `출발 ${fmt(first.timeMs)}`);
     if (last !== first) label(last, `끝 ${fmt(last.timeMs)}`);
+  }
+
+  /**
+   * 머문 곳을 지도에 표기한다.
+   *
+   * 체류마다 굵은 동그라미를 찍고, 상시 라벨로 머문 시간을 보여준다. 누르면
+   * 시각 범위와 주소까지 말풍선으로 편다. 다시 그릴 때 이전 표식은 지운다.
+   * @param stays  도출된 체류들
+   * @param fmtClock 시각(ms) → 'HH:MM' 등
+   * @param fmtDur   머문 시간(ms) → '2시간 5분' 등
+   */
+  showStays(stays: Stay[], fmtClock: (ms: number) => string, fmtDur: (ms: number) => string): void {
+    if (!this.map) return;
+    this.stayLayer?.remove();
+    if (stays.length === 0) { this.stayLayer = null; return; }
+    const layer = L.layerGroup();
+    stays.forEach((s, i) => {
+      const range = `${fmtClock(s.fromMs)}~${fmtClock(s.toMs)}`;
+      const dur = fmtDur(s.durationMs);
+      const popup = `<strong>머문 곳 ${i + 1}</strong><br>${range} · ${dur}` +
+        (s.addr ? `<br>${escapeHtmlText(s.addr)}` : '');
+      L.circleMarker([s.lat, s.lon], {
+        radius: 9, color: '#fff', weight: 3, fillColor: '#dd6b20', fillOpacity: 0.95,
+      })
+        .bindTooltip(dur, { permanent: true, direction: 'top', className: 'map-stay-label' })
+        .bindPopup(popup)
+        .addTo(layer);
+    });
+    layer.addTo(this.map);
+    this.stayLayer = layer;
+  }
+}
+
+/** 말풍선에 넣는 짧은 텍스트만 살짝 막는다 (전체 escapeHtml은 format 모듈에 있다) */
+function escapeHtmlText(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] ?? c
+  ));
+}
+
+/**
+ * 지도 파사드.
+ *
+ * 실행 환경에 맞는 백엔드를 골라 뒤로 감춘다 — 등록 도메인의 http/https 면 카카오,
+ * 아니면(파일 열기·미등록·오프라인) OSM. 호출부는 늘 GpsMap 하나만 쓴다.
+ *
+ * 안전제일: 카카오 생성이 조금이라도 어긋나면 즉시 OSM 으로 내려앉는다. 그래서
+ * 검증 못 한 카카오 코드가 실기기(항상 OSM)나 테스트를 깨지 못한다.
+ */
+export class GpsMap implements MapBackend {
+  /** 위/경도 유효행만 (charts 등에서도 쓴다) */
+  static validFixes = LeafletBackend.validFixes;
+
+  private backend: MapBackend;
+
+  constructor(el: HTMLElement) {
+    this.backend = GpsMap.makeBackend(el);
+  }
+
+  private static makeBackend(el: HTMLElement): MapBackend {
+    if (kakaoReady()) {
+      try { return new KakaoBackend(el); } catch { /* OSM 으로 */ }
+    }
+    return new LeafletBackend(el);
+  }
+
+  render(fixes: GpsFix[]): { shown: number; dropped: number } { return this.backend.render(fixes); }
+  syncTo(absTimeMs: number): GpsFix | null { return this.backend.syncTo(absTimeMs); }
+  showCurrent(): GpsFix | null { return this.backend.showCurrent(); }
+  fitAll(): boolean { return this.backend.fitAll(); }
+  resetFit(): void { this.backend.resetFit(); }
+  invalidate(): void { this.backend.invalidate(); }
+  enableTimeLabels(fmt: (ms: number) => string, extra?: (g: GpsFix) => string): void {
+    this.backend.enableTimeLabels(fmt, extra);
+  }
+  showStays(stays: Stay[], fmtClock: (ms: number) => string, fmtDur: (ms: number) => string): void {
+    this.backend.showStays(stays, fmtClock, fmtDur);
   }
 }

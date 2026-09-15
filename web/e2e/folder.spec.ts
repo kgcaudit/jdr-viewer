@@ -1667,3 +1667,34 @@ test('이동기록 상세 — 시간 스크러버로 시각을 본다', async ({
   await expect(page.locator('.map-time-label').first()).toBeVisible();
 });
 
+test('이동기록 상세 — 한 자리에 머물면 머문 곳과 머문 시간이 뜬다', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  const rows: any[] = [];
+  // 08:00~08:20 한 자리(±10m 지터)에 머문다 → 20분 체류 하나
+  for (let i = 0; i <= 20; i++) {
+    const mm = String(i).padStart(2, '0');
+    rows.push({ timestamp:`2026-09-12 08:${mm}:00`, latitude:37.5000 + (i%2)*0.00005, longitude:127.0000 + (i%2)*0.00005,
+      accuracy:10, speed:0, battery:80, address: i===0 ? '집' : '', provider:'gps', activity_type:'STILL', staytime:0 });
+  }
+  // 08:30~08:32 멀리 이동 (체류 아님)
+  rows.push({ timestamp:'2026-09-12 08:30:00', latitude:37.55, longitude:127.05, accuracy:10, speed:30, battery:80, address:'', provider:'gps', activity_type:'IN_VEHICLE', staytime:0 });
+  rows.push({ timestamp:'2026-09-12 08:32:00', latitude:37.60, longitude:127.10, accuracy:10, speed:30, battery:80, address:'', provider:'gps', activity_type:'IN_VEHICLE', staytime:0 });
+  const f = join(dir, 'stay.txt');
+  writeFileSync(f, JSON.stringify({ success:true, data:[rows], errors:[] }));
+  await page.locator('#move-file-input').setInputFiles([f]);
+  await page.waitForTimeout(300);
+  await page.locator('[data-day="2026-09-12"]').click();
+  await page.waitForTimeout(400);
+
+  // 머문 곳 블록에 1곳·20분 체류가 뜨고, 대표 주소(집)를 담는다
+  const stay = page.locator('.stay-block');
+  await expect(stay).toBeVisible();
+  await expect(stay.locator('.stay-h')).toContainText('1곳');
+  await expect(stay.locator('.stay-table tbody tr')).toHaveCount(1);
+  await expect(stay.locator('.stay-table tbody tr').first()).toContainText('20분');
+  await expect(stay.locator('.stay-table tbody tr').first()).toContainText('집');
+  // 지도에도 머문 시간 라벨이 뜬다 (OSM 백엔드)
+  await expect(page.locator('.map-stay-label').first()).toBeVisible();
+});
+

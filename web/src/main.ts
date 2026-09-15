@@ -15,7 +15,7 @@ import {
   mergeBookmarks, parseBookmarks, serializeBookmarks, sortBookmarks, type Bookmark,
 } from './core/bookmarks';
 import { probeSegment, type SegmentInfo } from './core/segment';
-import { formatDuration, formatRecordedTime, formatShortDate } from './core/time';
+import { formatDuration, formatDurationKo, formatRecordedTime, formatShortDate } from './core/time';
 import type { GpsFix, JdrDocument, ParseProgress } from './core/types';
 import { JdrParseJob } from './parse-client';
 import { MergedRecords, RecordScanJob } from './scan-client';
@@ -27,6 +27,7 @@ import { renderCalendar, type LoadStats } from './ui/calendar';
 import { renderSummary } from './ui/summary';
 import { hashSource } from './core/sha256';
 import { GpsMap } from './ui/map';
+import { preloadKakao } from './ui/kakao';
 import { TimeCharts } from './ui/charts';
 import { renderRangeExport } from './ui/range-export';
 import { parsePhoneTrack } from './core/phone-track';
@@ -36,6 +37,7 @@ import {
   type MoveDay, type MoveDaySummary, type MovePoint,
 } from './core/move-store';
 import { renderMoveList, renderMoveDay, trackMatchCsv } from './ui/move-panel';
+import { deriveStays } from './core/stays';
 import { CarTrackStore, type CarPoint } from './core/car-track-store';
 import {
   buildRange, isVideoKind, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange,
@@ -1754,7 +1756,10 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
   const fixes = day.points.map(movePointToFix);
   moveMatch = matchTracks(car.map((c) => ({ timeMs: c.t, lat: c.lat, lon: c.lon })), fixes);
 
-  renderMoveDay($('move-detail'), day, moveMatch, compared);
+  // 머문 곳(체류) 도출 — 한 자리에 오래 머문 구간을 시각범위·머문 시간으로
+  const stays = deriveStays(day.points.map((p) => ({ t: p.t, lat: p.lat, lon: p.lon, addr: p.addr })));
+
+  renderMoveDay($('move-detail'), day, moveMatch, compared, stays);
 
   // 지도 (상세를 다시 그릴 때마다 #move-map 요소가 새로 생기므로 새로 만든다)
   moveMap = new GpsMap($('move-map'));
@@ -1763,7 +1768,10 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
   moveMap.invalidate();
   // 경로에 시각을 붙인다 — 눌러서 그 점 시각을, 시작·끝엔 라벨을
   const hhmmss = (ms: number): string => formatRecordedTime(ms, false).slice(11, 19);
+  const hhmm = (ms: number): string => formatRecordedTime(ms, false).slice(11, 16);
   moveMap.enableTimeLabels(hhmmss, (g) => `${g.speed.toFixed(0)} km/h`);
+  // 머문 곳을 지도에도 굵은 표식으로 (누르면 시각 범위·주소)
+  moveMap.showStays(stays, hhmm, (ms) => formatDurationKo(ms / 1000));
   document.getElementById('move-fit')?.addEventListener('click', () => {
     if (!moveMap?.fitAll()) toast('표시할 경로가 없습니다');
   });
@@ -1955,3 +1963,6 @@ document.addEventListener('visibilitychange', () => {
 $('codec-note').textContent = hasWebCodecs()
   ? '이 브라우저는 WebCodecs를 지원합니다 — 변환 없이 바로 재생할 수 있습니다.'
   : '이 브라우저는 WebCodecs 미지원입니다 — 요약·GPS·센서·내보내기는 동작하지만 영상 재생은 되지 않습니다.';
+
+// 카카오 지도 SDK 를 미리 부른다(등록 도메인·http에서만). 실패하면 조용히 OSM 으로 간다.
+void preloadKakao();

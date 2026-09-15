@@ -8,6 +8,8 @@
 import type { MoveDay, MoveDaySummary } from '../core/move-store';
 import type { MatchResult, TrackClass } from '../core/track-match';
 import { CLASS_LABEL } from '../core/track-match';
+import type { Stay } from '../core/stays';
+import { staysSummary } from '../core/stays';
 import { formatDurationKo, formatRecordedTime, formatShortDate } from '../core/time';
 import { escapeHtml, num } from './format';
 
@@ -21,6 +23,29 @@ export const MOVE_CLASS_COLOR: Record<TrackClass, string> = {
 };
 
 const clock = (ms: number): string => formatRecordedTime(ms, false).slice(11, 16);
+
+/** 체류(머문 곳) 목록. 시각범위 · 머문 시간 · 장소. */
+function staysBlock(stays: Stay[]): string {
+  if (stays.length === 0) {
+    return `<div class="stay-block">
+      <h4 class="stay-h">머문 곳</h4>
+      <p class="muted small" style="margin:0">한 자리에 5분 이상 머문 구간이 없습니다.</p>
+    </div>`;
+  }
+  const sum = staysSummary(stays);
+  const rows = stays.map((s, i) => `<tr>
+      <td class="tnum">${escapeHtml(clock(s.fromMs))}~${escapeHtml(clock(s.toMs))}</td>
+      <td class="tnum">${escapeHtml(formatDurationKo(s.durationMs / 1000))}</td>
+      <td>${s.addr ? escapeHtml(s.addr) : `<span class="muted">지점 ${num(i + 1)}</span>`}</td>
+    </tr>`).join('');
+  return `<div class="stay-block">
+    <h4 class="stay-h">머문 곳 <span class="muted small">${num(sum.places)}곳 · 총 ${escapeHtml(formatDurationKo(sum.totalMs / 1000))}</span></h4>
+    <div class="track-table-wrap"><table class="track-table stay-table">
+      <thead><tr><th>시각</th><th>머문 시간</th><th>장소</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
 
 export interface MoveListHandlers {
   onOpenDay(dayKey: string): void;
@@ -67,7 +92,7 @@ function foldSegments(m: MatchResult): Seg[] {
  * @param compared 블랙박스 차량 GPS와 대조했는가 (안 했으면 '이 차량 주행'은 안 나온다)
  */
 export function renderMoveDay(
-  el: HTMLElement, day: MoveDay, m: MatchResult, compared: boolean,
+  el: HTMLElement, day: MoveDay, m: MatchResult, compared: boolean, stays: Stay[],
 ): void {
   const start = day.points.length ? day.points[0].t : NaN;
   const end = day.points.length ? day.points[day.points.length - 1].t : NaN;
@@ -116,6 +141,7 @@ export function renderMoveDay(
       </span>
     </div>
     ${compareNote}
+    ${staysBlock(stays)}
     ${bars}
     ${table}`;
 }

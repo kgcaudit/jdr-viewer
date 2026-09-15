@@ -210,6 +210,35 @@ body {
   background: var(--surface); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding:1px 6px; font-size: 11px; font-weight: 600; box-shadow: none;
 }
+.map-stay-label {
+  background: #dd6b20; color: #fff; border: 1px solid #fff;
+  border-radius: 6px; padding:1px 7px; font-size: 11px; font-weight: 700; box-shadow: none;
+}
+
+/* ── 카카오 지도 오버레이 (등록 도메인에서만 뜬다) ── */
+.kk-cursor {
+  width:14px; height:14px; border-radius:50%; background:#e53e3e;
+  border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.2);
+}
+.kk-popup, .kk-label {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding:2px 7px; font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.kk-stay { text-align:center; pointer-events:none; }
+.kk-stay-dot {
+  width:16px; height:16px; margin:0 auto; border-radius:50%;
+  background:#dd6b20; border:3px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.2);
+}
+.kk-stay-cap {
+  margin-top:2px; background:#dd6b20; color:#fff; border-radius:6px;
+  padding:1px 6px; font-size:11px; font-weight:700; white-space:nowrap;
+}
+
+/* ── 머문 곳(체류) ───────────────────── */
+.stay-block { margin:12px 0 4px; }
+.stay-h { margin:0 0 6px; font-size: 14px; font-weight: 700; }
+.stay-h .muted { font-weight: 500; }
+.stay-table td:last-child { white-space: normal; word-break: break-all; }
 
 /* ── 로딩 ───────────────────────────── */
 .loading { max-width: 480px; margin:12vh auto; text-align: center; }
