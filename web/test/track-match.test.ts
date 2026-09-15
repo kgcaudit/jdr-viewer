@@ -53,6 +53,21 @@ describe('휴대폰 × 차량 GPS 대사', () => {
     expect(points.every((p) => p.klass === 'stationary')).toBe(true);
   });
 
+  it('원본 staytime 이 크면 speed 가 있어도 체류로 본다', () => {
+    // 발췌 사례: speed 3.6인데 staytime 13082초 → 실제로는 정지. 속도에 속지 않는다.
+    const p = phone(0, 36.8738267, 127.4712511, { rawSpeed: 3.6, stayMs: 13082 * 1000, activity: '' });
+    const { points } = matchTracks([], [p]);
+    expect(points[0].klass).toBe('stationary');
+  });
+
+  it('같은 시각 차량이 있어도 staytime 이 크면 체류(주차)로 본다', () => {
+    // 차량 GPS가 곁에 있어도 오래 머물렀으면 주행이 아니라 체류
+    const cars: CarFix[] = [car(0, 37.5, 127)];
+    const p = phone(0, 37.5, 127, { stayMs: 30 * 60_000 });
+    const { points } = matchTracks(cars, [p]);
+    expect(points[0].klass).toBe('stationary');
+  });
+
   it('같은 시각 차량이 있어도 위치가 멀면 이 차량 주행이 아니다', () => {
     // 차량은 여기, 휴대폰은 500 m 밖에서 걷는다 → 보행/다른 이동이지 이 차량 아님
     const cars: CarFix[] = [];

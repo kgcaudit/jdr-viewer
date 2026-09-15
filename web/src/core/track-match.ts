@@ -36,6 +36,8 @@ export interface MatchOptions {
   stillKmh: number;
   /** 차량 점과 이 시간(ms) 안이라야 "같은 시각"으로 견준다 */
   timeTolMs: number;
+  /** 원본 staytime 이 이 시간(ms) 이상이면 속도와 무관하게 체류로 본다 */
+  stillStayMs: number;
 }
 
 export const DEFAULT_MATCH: MatchOptions = {
@@ -43,6 +45,7 @@ export const DEFAULT_MATCH: MatchOptions = {
   walkKmh: 7,
   stillKmh: 1.5,
   timeTolMs: 30_000,
+  stillStayMs: 2 * 60_000,
 };
 
 /** 이웃 점으로 속도를 낼 때, 이보다 시간이 벌어지면 추정을 포기한다(초) */
@@ -63,6 +66,8 @@ export interface MatchedPoint {
   /** 그 차량 점과의 시간차(ms). 없으면 Infinity. */
   carDtMs: number;
   klass: TrackClass;
+  /** 원본 staytime(ms) — 그 지점 머문 시간. 체류 판단의 근거. */
+  stayMs: number;
   /** 이 점이 대표하는 시간(ms) — 요약에서 "몇 분"을 셀 때 쓴다 */
   spanMs: number;
 }
@@ -136,7 +141,11 @@ function nearestCar(carTimes: number[], t: number): number {
 }
 
 function classify(p: MatchedPoint, activity: string, opt: MatchOptions): TrackClass {
-  // 1) 기하학적 사실이 최우선: 그 시각 차량이 곁에 있으면 이 차량 주행
+  // 0) 원본 staytime 이 근거: 그 지점에 오래 머물렀다면 속도와 무관하게 체류.
+  //    (원본 speed 가 3.6이어도 staytime 이 크면 실제로는 정지 상태다)
+  if (p.stayMs >= opt.stillStayMs) return 'stationary';
+
+  // 1) 기하학적 사실: 그 시각 차량이 곁에 있으면 이 차량 주행
   if (Number.isFinite(p.carDistM) && p.carDistM <= opt.overlapM) return 'in_vehicle_this';
 
   // 2) 다시 계산한 속도가 있으면 그걸 주로 쓴다
@@ -193,7 +202,7 @@ export function matchTracks(
       activity: f.activity, accuracyM: f.accuracyM,
       moveKmh: moveSpeedKmh(phoneFixes, i),
       carDistM, carDtMs,
-      klass: 'unknown', spanMs: 0,
+      klass: 'unknown', stayMs: f.stayMs, spanMs: 0,
     };
     mp.klass = classify(mp, f.activity, opt);
     points.push(mp);

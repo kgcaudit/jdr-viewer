@@ -153,11 +153,12 @@ export function renderMoveDay(
 
 /** 대조 결과를 CSV로 (감사 근거: 원 좌표·판정을 모두 남긴다) */
 export function trackMatchCsv(m: MatchResult): string {
-  const head = ['시각', '위도', '경도', '구분', '활동유형', '이동속도_kmh', '차량거리_m', '정확도_m'];
+  const head = ['시각', '위도', '경도', '구분', '활동유형', '체류시간_초', '이동속도_kmh', '차량거리_m', '정확도_m'];
   const rows = m.points.map((p) => [
     formatRecordedTime(p.timeMs, false),
     p.lat.toFixed(6), p.lon.toFixed(6),
     CLASS_LABEL[p.klass], p.activity,
+    p.stayMs ? Math.round(p.stayMs / 1000).toString() : '',
     Number.isFinite(p.moveKmh) ? p.moveKmh.toFixed(1) : '',
     Number.isFinite(p.carDistM) ? Math.round(p.carDistM).toString() : '',
     Math.round(p.accuracyM).toString(),

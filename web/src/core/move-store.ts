@@ -28,6 +28,8 @@ export interface MovePoint {
   act: string;
   /** 주소 라벨 (체류 지점 표기용). 옛 저장분엔 없을 수 있다. */
   addr?: string;
+  /** 그 지점의 체류시간(ms) — 원본 staytime. 체류 도출의 근거. 옛 저장분엔 없다. */
+  stay?: number;
 }
 
 /** 하루치 이동기록 (병합된 결과) */
@@ -52,13 +54,14 @@ export interface MoveDaySummary {
 export function toMovePoint(f: PhoneFix): MovePoint {
   const p: MovePoint = { t: f.timeMs, lat: f.lat, lon: f.lon, speed: f.rawSpeed, acc: f.accuracyM, act: f.activity };
   if (f.address) p.addr = f.address;
+  if (f.stayMs) p.stay = f.stayMs;
   return p;
 }
 
 export function movePointToFix(p: MovePoint): PhoneFix {
   return {
     timeMs: p.t, lat: p.lat, lon: p.lon, rawSpeed: p.speed, accuracyM: p.acc,
-    activity: p.act, stayMs: 0, provider: '', battery: 0, address: '',
+    activity: p.act, stayMs: p.stay ?? 0, provider: '', battery: 0, address: p.addr ?? '',
   };
 }
 

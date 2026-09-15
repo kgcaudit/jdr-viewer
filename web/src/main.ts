@@ -1756,8 +1756,10 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
   const fixes = day.points.map(movePointToFix);
   moveMatch = matchTracks(car.map((c) => ({ timeMs: c.t, lat: c.lat, lon: c.lon })), fixes);
 
-  // 머문 곳(체류) 도출 — 한 자리에 오래 머문 구간을 시각범위·머문 시간으로
-  const stays = deriveStays(day.points.map((p) => ({ t: p.t, lat: p.lat, lon: p.lon, addr: p.addr })));
+  // 머문 곳(체류) 도출 — 원본 staytime(그 지점 머문 시간) 기준
+  const stays = deriveStays(day.points.map((p) => ({
+    t: p.t, lat: p.lat, lon: p.lon, addr: p.addr, stayMs: p.stay ?? 0,
+  })));
 
   renderMoveDay($('move-detail'), day, moveMatch, compared, stays);
 

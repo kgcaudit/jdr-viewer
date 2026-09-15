@@ -31,7 +31,7 @@ export interface PhoneFix {
   accuracyM: number;
   /** OS가 매긴 활동유형(still / walking / in_vehicle 등) — 분류의 1차 단서 */
   activity: string;
-  /** 그 자리에 머문 시간(ms 추정) — 원본 staytime */
+  /** 그 지점의 체류시간(ms). 원본 staytime(초)을 ms로 — 체류 판단의 근거값. */
   stayMs: number;
   provider: string;
   battery: number;
@@ -107,7 +107,8 @@ export function parsePhoneTrack(text: string): PhoneFix[] {
       rawSpeed: num(o.speed) || 0,
       accuracyM: num(o.accuracy) || 0,
       activity: typeof o.activity_type === 'string' ? o.activity_type : '',
-      stayMs: (num(o.staytime) || 0) * (typeof o.staytime === 'number' && o.staytime < 100000 ? 1000 : 1),
+      stayMs: (num(o.staytime) || 0) * 1000, // 원본 staytime 은 항상 초 단위
+
       provider: typeof o.provider === 'string' ? o.provider : '',
       battery: num(o.battery) || 0,
       address: typeof o.address === 'string' ? o.address : '',
