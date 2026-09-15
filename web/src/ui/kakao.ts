@@ -48,24 +48,19 @@ function mapOverride(): 'kakao' | 'osm' | null {
 /**
  * 카카오를 시도할 자격 판정.
  *
- * 실측(카카오 데브톡/가이드): `file://` 로 직접 연 HTML 은 도메인을 등록해도 지도
- * **라이브러리가 뜨지 않는다**. 뜨는 길은 http/https 서빙 + 그 도메인 등록뿐이며,
- * 로컬 서버 `http://localhost:PORT` 도 등록하면 된다. 그래서:
- *   - `?map=osm`  → 무조건 OSM (테스트·강제 대체)
- *   - `?map=kakao`→ http/https 면 localhost 라도 카카오 시도 (로컬 서버 등록한 경우)
- *   - 기본       → http/https + 비-localhost 에서만 (등록 호스팅), file://·localhost 는 OSM
- * 기본에서 localhost 를 빼는 이유: 등록 안 한 로컬·헤드리스 e2e 가 결정론적으로 OSM.
+ * **현재 기본은 OSM 이다.** 카카오 적용은 뒤로 미뤘다 — 실측(카카오 데브톡/가이드)
+ * 상 `file://` 로 직접 연 HTML 은 도메인을 등록해도 지도 라이브러리가 뜨지 않고,
+ * 뜨는 길(http/https 서빙 + 도메인 등록)은 배포 방식 결정이 필요하기 때문이다.
+ *
+ * 그래서 카카오는 **명시적으로 켤 때만**(`?map=kakao`, http/https) 시도하고, 그 외
+ * 모든 경우(기본·`file://`·`?map=osm`·오프라인)는 OSM 으로 간다. 백엔드 코드는
+ * 남겨 두었으니, 나중에 호스팅을 정하고 도메인을 등록하면 이 한 곳만 풀면 된다.
  */
 function eligible(): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
-  const ov = mapOverride();
-  if (ov === 'osm') return false;
+  if (mapOverride() !== 'kakao') return false; // 기본 OSM — 명시적 opt-in 만 카카오
   const p = window.location.protocol;
-  if (p !== 'http:' && p !== 'https:') return false;
-  if (ov === 'kakao') return true; // 로컬 서버에 localhost 를 등록한 경우 등
-  const h = window.location.hostname;
-  if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '::1' || h === '') return false;
-  return true;
+  return p === 'http:' || p === 'https:';
 }
 
 /** SDK 를 한 번만 부른다. 성공하면 kakaoReady()가 참이 된다. 실패해도 조용히 대체된다. */
