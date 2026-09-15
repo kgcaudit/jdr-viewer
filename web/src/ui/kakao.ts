@@ -20,7 +20,7 @@ import type { MapBackend } from './map-backend';
 
 // ── SDK 로더 ────────────────────────────────────────
 // JS 키. 브라우저에 노출되는 값이라 도메인 제한이 유일한 보호막이다(§0).
-const KAKAO_JS_KEY = 'e1c60a373716a5f2e90363a1bf1a01d5';
+const KAKAO_JS_KEY = '5c05414abebe433a71e0d03e3ca7a7f9';
 // libraries=services 로 좌표→주소(coord2Address)까지 같은 SDK 로 쓴다
 const SDK_URL = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false&libraries=services`;
 const LOAD_TIMEOUT_MS = 9000;
