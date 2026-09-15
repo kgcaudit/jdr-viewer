@@ -185,6 +185,7 @@ body {
   border-radius: var(--radius); padding:12px 14px; cursor: pointer; font: inherit; color: var(--text);
   display: grid; grid-template-columns: auto 1fr; gap:2px 12px; align-items: baseline;
 }
+.brand { cursor: pointer; }
 .move-day-date { font-weight: 650; font-variant-numeric: tabular-nums; }
 .move-day-meta { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; text-align: right; }
 .move-day-src { grid-column: 1 / -1; font-size: 11px; }

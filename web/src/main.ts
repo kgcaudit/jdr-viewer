@@ -29,14 +29,14 @@ import { hashSource } from './core/sha256';
 import { GpsMap } from './ui/map';
 import { TimeCharts } from './ui/charts';
 import { renderRangeExport } from './ui/range-export';
-import { parsePhoneTrack, PhoneTrackError, type PhoneFix } from './core/phone-track';
+import { parsePhoneTrack } from './core/phone-track';
 import { matchTracks, type MatchResult } from './core/track-match';
-import { renderTrackPanel, trackMatchCsv } from './ui/track-panel';
 import {
   MoveStore, MOVE_FILE_NAME, movePointToFix, parseMoveFile, serializeMoveDays,
-  MoveFileError, type MoveDaySummary, type MovePoint,
+  MoveFileError, type MoveDay, type MoveDaySummary, type MovePoint,
 } from './core/move-store';
-import { renderMoveList, renderMoveDay } from './ui/move-panel';
+import { renderMoveList, renderMoveDay, trackMatchCsv } from './ui/move-panel';
+import { CarTrackStore, type CarPoint } from './core/car-track-store';
 import {
   buildRange, isVideoKind, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange,
 } from './core/range-export';
@@ -928,9 +928,14 @@ function startRecordScan(): void {
       chunk.done >= chunk.total
         ? `${s.label} 스캔 완료 · GPS ${num(s.records.gps.length)}건 · 센서 ${num(s.records.sensorCount)}건`
         : `${s.label} GPS·센서 스캔 중… ${num(chunk.done)} / ${num(chunk.total)}`;
-    if (chunk.done >= chunk.total) s.scanDone = true;
-    // 동선 탭이 열려 있으면 새로 모인 차량 GPS로 다시 맞춘다
-    if (document.getElementById('tab-track')?.classList.contains('is-active')) drawTrackPanel();
+    if (chunk.done >= chunk.total) {
+      s.scanDone = true;
+      // 이 날짜 차량 GPS를 영구 저장한다 — 이동기록 공간에서 재생 없이 대조에 쓴다.
+      // 여러 운행을 열수록 같은 날짜에 병합되어 그날 트랙이 채워진다.
+      if (s.dayKey) {
+        void carStore.putMerge(s.dayKey, s.records.gps.map((g) => ({ t: g.timeMs, lat: g.lat, lon: g.lon })));
+      }
+    }
     const now = performance.now();
     if (chunk.done >= chunk.total || now - lastDraw > 1200) {
       lastDraw = now;
@@ -1574,61 +1579,12 @@ function downloadFile(blob: Blob, name: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-// ── 동선 대조 ───────────────────────────────────────
-//
-// 휴대폰 위치기록(도와줘)을 올려 그날 차량 GPS와 맞춘다. 차량 GPS는 뷰어가
-// 스캔으로 모아 둔 session.records.gps를 쓴다 — 인덱스에 이미 기록된 값이라
-// 원본을 다시 건드리지 않는다.
-let phoneTrack: PhoneFix[] | null = null;
-let trackMatch: MatchResult | null = null;
-
-function drawTrackPanel(): void {
-  const el = document.getElementById('track-panel');
-  if (!el) return;
-  const s = session;
-  const carGps = s?.records.gps ?? [];
-  // 휴대폰·차량 둘 다 있으면 대조한다. 스캔이 진행 중이면 늘어난 GPS로 다시 계산된다.
-  trackMatch = phoneTrack && carGps.length > 0 ? matchTracks(carGps, phoneTrack) : null;
-  renderTrackPanel(el, {
-    phone: phoneTrack,
-    carGpsCount: carGps.length,
-    scanDone: !!s && s.scanDone,
-    match: trackMatch,
-    hasSession: !!s,
-  }, {
-    onLoadFile: () => $('track-file-input').click(),
-    onExportCsv: () => {
-      if (!trackMatch) return;
-      const name = phoneTrack && phoneTrack.length
-        ? `dongseon_${formatRecordedTime(phoneTrack[0].timeMs, false).slice(0, 10)}.csv`
-        : 'dongseon.csv';
-      downloadFile(new Blob([trackMatchCsv(trackMatch)], { type: 'text/csv' }), name);
-      toast(`${name} 저장`);
-    },
-    onClear: () => { phoneTrack = null; trackMatch = null; drawTrackPanel(); },
-  });
-}
-
-$<HTMLInputElement>('track-file-input').addEventListener('change', async (e) => {
-  const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file) return;
-  try {
-    phoneTrack = parsePhoneTrack(await file.text());
-    if (phoneTrack.length === 0) { toast('좌표가 있는 위치기록이 없습니다'); }
-    else toast(`휴대폰 위치 ${num(phoneTrack.length)}점을 읽었습니다`);
-    drawTrackPanel();
-  } catch (err) {
-    toast(err instanceof PhoneTrackError ? err.message : (err instanceof Error ? err.message : String(err)));
-  }
-});
-
 // ── 이동기록 공간 ───────────────────────────────────
 //
 // 블랙박스(재생)와 분리된 별도 공간. 휴대폰 위치기록을 올려 날짜별로 병합·관리하고
 // 그날 동선을 지도·요약으로 본다. 대조(차량 GPS와 겹치기)는 상세에서 부른다.
 const moveStore = new MoveStore();
+const carStore = new CarTrackStore();
 let moveDays: MoveDaySummary[] = [];
 let moveMatch: MatchResult | null = null;
 let moveMap: GpsMap | null = null;
@@ -1674,27 +1630,34 @@ function backToMoveList(): void {
 async function openMoveDay(dayKey: string): Promise<void> {
   const day = await moveStore.getDay(dayKey);
   if (!day || day.points.length === 0) { toast('그 날짜 기록이 없습니다'); return; }
+  // 이 날짜 차량 GPS가 이미 저장돼 있으면(그날 블랙박스를 열어 스캔한 적 있으면)
+  // 바로 대조한다. 없으면 휴대폰만으로 보행/체류/다른 이동을 가른다.
+  const car = await carStore.getDay(dayKey);
+  showMoveDetail(day, car);
+  $('move-list').hidden = true;
+  $('move-detail').hidden = false;
+}
+
+/** 이동기록 날짜 상세를 그린다 (차량 GPS가 있으면 "이 차량 주행"까지 가른다) */
+function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
+  const compared = car.length > 0;
   const fixes = day.points.map(movePointToFix);
-  // 2단계: 차량 GPS 없이 휴대폰만으로 보행/체류/다른 이동을 가른다.
-  // 3~4단계에서 블랙박스 차량 GPS를 끌어와 "이 차량 주행"까지 켠다.
-  moveMatch = matchTracks([], fixes);
+  moveMatch = matchTracks(car.map((c) => ({ timeMs: c.t, lat: c.lat, lon: c.lon })), fixes);
 
   const detail = $('move-detail');
-  renderMoveDay(detail, day, moveMatch, false, {
+  renderMoveDay(detail, day, moveMatch, compared, {
     onBack: backToMoveList,
-    onCompare: () => toast('블랙박스와의 대조는 다음 단계에서 켜집니다 (차량 GPS 인덱스)'),
+    onCompare: () => void compareDay(day.dayKey),
     onExportCsv: () => {
       if (!moveMatch) return;
-      downloadFile(new Blob([trackMatchCsv(moveMatch)], { type: 'text/csv' }), `dongseon_${dayKey}.csv`);
+      downloadFile(new Blob([trackMatchCsv(moveMatch)], { type: 'text/csv' }), `dongseon_${day.dayKey}.csv`);
       toast('CSV 저장');
     },
     onDelete: () => {
-      if (!confirm(`${dayKey} 이동기록을 지울까요?`)) return;
-      void moveStore.removeDay(dayKey).then(() => { toast('지웠습니다'); backToMoveList(); });
+      if (!confirm(`${day.dayKey} 이동기록을 지울까요?`)) return;
+      void moveStore.removeDay(day.dayKey).then(() => { toast('지웠습니다'); backToMoveList(); });
     },
   });
-  $('move-list').hidden = true;
-  detail.hidden = false;
 
   // 지도 (상세를 다시 그릴 때마다 #move-map 요소가 새로 생기므로 새로 만든다)
   moveMap = new GpsMap($('move-map'));
@@ -1706,8 +1669,26 @@ async function openMoveDay(dayKey: string): Promise<void> {
   });
 }
 
+/** '블랙박스와 대조' — 저장된 그날 차량 GPS를 끌어와 다시 가른다 */
+async function compareDay(dayKey: string): Promise<void> {
+  const car = await carStore.getDay(dayKey);
+  if (car.length === 0) {
+    toast('그 날짜 블랙박스를 한 번 열어 두면(스캔) 대조됩니다');
+    return;
+  }
+  const day = await moveStore.getDay(dayKey);
+  if (!day) return;
+  showMoveDetail(day, car);
+  toast(`차량 GPS ${num(car.length)}건과 대조했습니다`);
+}
+
 $('btn-move-enter').addEventListener('click', () => enterMove());
 $('btn-move-home').addEventListener('click', () => showView('empty'));
+// 브랜드 로고를 누르면 시작화면(두 공간)으로 — 공간을 오가는 길
+document.querySelector('.brand')?.addEventListener('click', () => {
+  session?.player.pause();
+  showView('empty');
+});
 
 $<HTMLInputElement>('move-file-input').addEventListener('change', async (e) => {
   const input = e.target as HTMLInputElement;
@@ -1834,7 +1815,6 @@ document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
     if (tab.dataset.tab === 'sensor') charts?.resize();
     if (tab.dataset.tab === 'speech') drawSpeechPanel();
     if (tab.dataset.tab === 'export') drawRangeExport();
-    if (tab.dataset.tab === 'track') drawTrackPanel();
   });
 });
 

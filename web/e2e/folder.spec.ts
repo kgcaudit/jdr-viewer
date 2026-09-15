@@ -1532,50 +1532,6 @@ test('즐겨찾기 — 폴더는 열려 있지만 다른 운행이면 그 운행
 });
 
 
-test('동선 탭 — 휴대폰 위치기록을 올려 차량 GPS와 대조한다', async ({ page }) => {
-  // 배선 확인: 파일 로드 → 탭 렌더 → 요약/표 → CSV. 분류 정확도는 단위테스트가 덮는다.
-  await openMorningSession(page);
-  // 차량 GPS 스캔이 끝나길 기다린다 (session.records.gps가 채워진다)
-  await page.waitForFunction(
-    () => /스캔 완료/.test(document.getElementById('scan-note')?.textContent ?? ''),
-    undefined, { timeout: 30_000 });
-
-  // 도와줘 형식의 휴대폰 위치기록을 만든다 (차량 경로 부근, 같은 날)
-  const rows = [];
-  for (let i = 0; i < 5; i++) {
-    const ss = String(20 + i * 10).padStart(2, '0');
-    rows.push({
-      timestamp: `2026-09-08 08:09:${ss}`,
-      latitude: 37.5595 + i * 0.0002, longitude: 126.9687 + i * 0.0002,
-      accuracy: 10, speed: 40, battery: 80, address: '서울',
-      updated_at: `2026-09-08 08:09:${ss}`, provider: 'gps', activity_type: 'IN_VEHICLE', staytime: 0,
-    });
-  }
-  const phoneFile = join(dir, 'phone-0908.txt');
-  writeFileSync(phoneFile, JSON.stringify({ success: true, message: '위치기록 조회 완료', data: [rows], errors: [] }));
-
-  await page.locator('[data-tab="track"]').click();
-  await page.locator('#track-load').click();
-  await page.locator('#track-file-input').setInputFiles(phoneFile);
-
-  // 점 개수와 날짜가 뜬다
-  await expect(page.locator('.track-head')).toContainText('2026-09-08');
-  await expect(page.locator('.track-head')).toContainText('휴대폰 5점');
-  // 차량 GPS와 대조했으니 요약 막대가 있고, 하나 이상은 분류된다
-  await expect(page.locator('.track-bars')).toBeVisible();
-  await expect(page.locator('.track-bar')).not.toHaveCount(0);
-
-  // CSV 내보내기가 다운로드를 일으킨다
-  const dl = page.waitForEvent('download');
-  await page.locator('#track-export').click();
-  const d = await dl;
-  expect(d.suggestedFilename()).toBe('dongseon_2026-09-08.csv');
-
-  // 지우면 처음 상태로
-  await page.locator('#track-clear').click();
-  await expect(page.locator('.track-head')).toHaveCount(0);
-});
-
 test('이동기록 공간 — 다중 업로드·날짜별 병합·상세', async ({ page }) => {
   await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
   // 시작화면에 두 공간이 보인다
@@ -1623,4 +1579,48 @@ test('이동기록 공간 — 다중 업로드·날짜별 병합·상세', async
   await page.locator('#move-file-input').setInputFiles([more]);
   await page.waitForTimeout(300);
   await expect(page.locator('[data-day="2026-09-12"]')).toContainText('4점');
+});
+
+test('대조 — 블랙박스 스캔이 저장한 차량 GPS로 이 차량 주행을 가린다', async ({ page }) => {
+  // 1) 블랙박스 운행을 열면 스캔이 그날 차량 GPS를 IndexedDB에 저장한다.
+  await openMorningSession(page);
+  await page.waitForFunction(
+    () => /스캔 완료/.test(document.getElementById('scan-note')?.textContent ?? ''),
+    undefined, { timeout: 30_000 });
+
+  // 저장된 차량 점 몇 개를 읽어 그 위에 휴대폰 점을 얹는다 (겹치면 '이 차량 주행')
+  const carPts = await page.evaluate(async () => {
+    const db: IDBDatabase = await new Promise((res, rej) => {
+      const r = indexedDB.open('jdr-viewer-cartrack', 1);
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    const doc: any = await new Promise((res, rej) => {
+      const tx = db.transaction('days', 'readonly');
+      const rq = tx.objectStore('days').get('2026-09-08');
+      rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+    });
+    return doc ? doc.points.slice(0, 4).map((p: any) => ({ t: p.t, lat: p.lat, lon: p.lon })) : [];
+  });
+  expect(carPts.length, '차량 GPS가 저장돼 있어야 한다').toBeGreaterThan(0);
+
+  // 차량 점과 같은 시각·좌표의 휴대폰 기록을 만든다
+  const rows = carPts.map((p: { t: number; lat: number; lon: number }) => ({
+    timestamp: new Date(p.t).toISOString().slice(0, 19).replace('T', ' '),
+    latitude: p.lat, longitude: p.lon, accuracy: 8, speed: 40,
+    battery: 80, address: '', provider: 'gps', activity_type: 'IN_VEHICLE', staytime: 0,
+  }));
+  const phoneFile = join(dir, 'phone-compare.txt');
+  writeFileSync(phoneFile, JSON.stringify({ success: true, data: [rows], errors: [] }));
+
+  // 2) 이동기록 공간으로 가서 올리고 그날을 연다 (같은 컨텍스트라 IndexedDB 유지)
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  await page.locator('#move-upload').click();
+  await page.locator('#move-file-input').setInputFiles([phoneFile]);
+  await page.waitForTimeout(300);
+  await page.locator('[data-day="2026-09-08"]').click();
+  await page.waitForTimeout(400);
+
+  // 저장된 차량 GPS가 있으니 자동으로 대조되어 '이 차량 주행'이 나온다
+  await expect(page.locator('.track-bars')).toContainText('이 차량 주행');
 });
