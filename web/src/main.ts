@@ -37,7 +37,8 @@ import {
   type MoveDay, type MoveDaySummary, type MovePoint,
 } from './core/move-store';
 import { renderMoveList, renderMoveDay, trackMatchCsv } from './ui/move-panel';
-import { deriveStays } from './core/stays';
+import { deriveStays, type Stay } from './core/stays';
+import { reverseGeocode } from './core/geocode';
 import { CarTrackStore, type CarPoint } from './core/car-track-store';
 import {
   buildRange, isVideoKind, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange,
@@ -1778,6 +1779,9 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
     if (!moveMap?.fitAll()) toast('표시할 경로가 없습니다');
   });
 
+  // 머문 곳 주소 채우기(리버스 지오코딩) — 원본에 주소가 없는 체류만, OSM으로
+  void fillStayAddresses(stays, day.dayKey, hhmm);
+
   // 시간 스크러버 — 끌면 표식이 궤적을 따라 움직이고 그 시각을 보여준다
   const s0 = day.points[0].t;
   const s1 = day.points[day.points.length - 1].t;
@@ -1788,6 +1792,36 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
     const f = moveMap?.syncTo(abs);
     if (readout) readout.textContent = f ? hhmmss(f.timeMs) : '--:--:--';
   });
+}
+
+/**
+ * 머문 곳 주소를 리버스 지오코딩으로 채운다 (OSM).
+ *
+ * 원본(도와줘)에 주소가 있으면 그대로 쓰고, 없는 체류만 좌표→주소로 조회한다.
+ * 좌표별 캐시라 같은 자리는 한 번만 부른다. 다른 날짜로 넘어갔으면 멈춘다.
+ */
+async function fillStayAddresses(stays: Stay[], dayKey: string, hhmm: (ms: number) => string): Promise<void> {
+  let changed = false;
+  for (let i = 0; i < stays.length; i++) {
+    const s = stays[i];
+    const cell = document.querySelector<HTMLElement>(`#move-detail [data-stay-where="${i}"]`);
+    if (s.addr) { if (cell) cell.textContent = s.addr; continue; }
+    const addr = await reverseGeocode(s.lat, s.lon);
+    // 조회 중 사용자가 목록으로 나갔거나 다른 날짜를 열었으면 중단
+    if (!moveDetailOpen || moveCurrentDayKey !== dayKey) return;
+    const cur = document.querySelector<HTMLElement>(`#move-detail [data-stay-where="${i}"]`);
+    if (addr) {
+      s.addr = addr;
+      if (cur) cur.textContent = addr;
+      changed = true;
+    } else if (cur) {
+      cur.innerHTML = `<span class="muted">지점 ${i + 1}</span>`; // 실패 시 자리 표시
+    }
+  }
+  // 주소가 채워졌으면 지도 팝업에도 반영되게 표식을 다시 그린다
+  if (changed && moveMap && moveDetailOpen && moveCurrentDayKey === dayKey) {
+    moveMap.showStays(stays, hhmm, (ms) => formatDurationKo(ms / 1000));
+  }
 }
 
 // ── 이동기록 상단바 동작 ─────────────────────────────

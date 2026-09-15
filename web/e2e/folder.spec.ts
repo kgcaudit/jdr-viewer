@@ -1701,3 +1701,26 @@ test('이동기록 상세 — 한 자리에 머물면 머문 곳과 머문 시�
   await expect(page.locator('.map-stay-label').first()).toBeVisible();
 });
 
+test('이동기록 상세 — ⋯ 메뉴가 지도에 가리지 않는다(레이어)', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  const rows = [];
+  for (let i = 0; i < 4; i++) rows.push({ timestamp:`2026-09-12 08:0${i}:00`, latitude:37.50+i*0.002, longitude:127.00+i*0.002, accuracy:10, speed:20, battery:80, address:'', provider:'gps', activity_type:'IN_VEHICLE', staytime:5 });
+  const f = join(dir, 'menu.txt'); writeFileSync(f, JSON.stringify({ success:true, data:[rows], errors:[] }));
+  await page.locator('#move-file-input').setInputFiles([f]);
+  await page.waitForTimeout(300);
+  await page.locator('[data-day="2026-09-12"]').click();
+  await page.waitForTimeout(400);
+
+  // ⋯ 를 열면 메뉴 항목이 지도 위(같은 화면 영역)에서도 실제 최상단이어야 한다
+  await page.locator('#tb-more-btn').click();
+  const del = page.locator('#move-delete');
+  await expect(del).toBeVisible();
+  const onTop = await del.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return el.contains(hit) || el === hit;
+  });
+  expect(onTop, '메뉴 항목이 지도에 가려지면 안 된다').toBe(true);
+});
+

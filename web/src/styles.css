@@ -118,7 +118,7 @@ body {
 
 /* 팝업 메뉴 (공간 전환 / ⋯ 더보기) */
 .menu-pop {
-  position: fixed; z-index: 40; min-width: 160px; padding:6px;
+  position: fixed; z-index: 1200; min-width: 160px; padding:6px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
   box-shadow: 0 10px 30px -8px rgba(16, 20, 28, 0.35);
 }
@@ -284,6 +284,7 @@ body {
 .stay-dur { font-size:15px; font-weight:800; color:var(--text); line-height:1.2; }
 .stay-meta { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:1px; }
 .stay-where { font-size:13px; color:var(--text); margin-top:2px; word-break:break-all; }
+.stay-note { margin:8px 2px 0; }
 
 /* ── 로딩 ───────────────────────────── */
 .loading { max-width: 480px; margin:12vh auto; text-align: center; }
@@ -503,7 +504,7 @@ body {
 }
 .note strong { color: var(--text); }
 
-.map { height: 320px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--surface-2); }
+.map { height: 320px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--surface-2); isolation: isolate; }
 @media (min-width: 1000px) { .map { height: 380px; } }
 .chart { margin-bottom:20px; }
 .chart:last-of-type { margin-bottom:var(--s-2); }

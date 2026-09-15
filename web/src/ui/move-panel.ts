@@ -39,7 +39,7 @@ function staysBlock(stays: Stay[]): string {
       <div class="stay-body">
         <div class="stay-dur">${escapeHtml(formatDurationKo(s.durationMs / 1000))}</div>
         <div class="stay-meta tnum">${escapeHtml(clock(s.fromMs))} ~ ${escapeHtml(clock(s.toMs))}</div>
-        <div class="stay-where">${s.addr ? escapeHtml(s.addr) : `<span class="muted">지점 ${num(i + 1)}</span>`}</div>
+        <div class="stay-where" data-stay-where="${i}">${s.addr ? escapeHtml(s.addr) : `<span class="muted">주소 조회 중…</span>`}</div>
       </div>
     </li>`).join('');
   return `<section class="stay-block">
@@ -49,6 +49,7 @@ function staysBlock(stays: Stay[]): string {
       <span class="stay-sum">${num(sum.places)}곳 · 총 ${escapeHtml(formatDurationKo(sum.totalMs / 1000))}</span>
     </div>
     <ol class="stay-list">${items}</ol>
+    <p class="stay-note muted small">주소는 OpenStreetMap 리버스 지오코딩입니다 — 체류 좌표가 전송됩니다.</p>
   </section>`;
 }
 
