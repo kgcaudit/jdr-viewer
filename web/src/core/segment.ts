@@ -10,6 +10,8 @@ import type { ByteSource } from './byte-source';
 import { INDEX_ENTRY_SIZE, JEB_HEADER_SIZE, PACKET_HEADER_SIZE, readSystemTimeFromView, validateHeader } from './parser';
 import { systemTimeToMs } from './time';
 import { packTag, TagKind, tagKind } from './tags';
+import { durationExceedsContent, endFromFrames } from './duration';
+export { durationExceedsContent } from './duration';
 
 /** 시간 범위를 어디서 얻었는지 — UI에 신뢰도를 표시하기 위함 */
 export type TimeSource = 'header' | 'packets' | 'filename' | 'unknown';
@@ -79,14 +81,6 @@ const MAX_BLOCKS = 8192;
 const RESUME_STEPS = [4 << 10, 64 << 10, 256 << 10];
 /** 넓혀 훑기를 파일당 몇 번까지 허용할지 */
 const RESUME_WIDE_BUDGET = 4;
-/**
- * 담긴 내용이 받쳐 줄 수 있는 최저 속도 — 패킷 하나에 1초.
- *
- * 주차 저속 녹화(1fps)까지 감안해도 이보다 느릴 수는 없다. 이걸 넘는 길이는
- * 녹화된 시간이 아니라 **파일에 적힌 다른 무엇**이다(파일을 닫은 시각,
- * 시동을 걸며 덧붙인 GPS 패킷 한 줄 따위).
- */
-const MIN_RATE_PER_SEC = 1;
 /** 헤더가 0번지에 없을 때 훑어볼 범위. 이보다 뒤면 이 파일은 건너뛴다. */
 const SCAN_LIMIT = 4 << 20;
 const MAGIC = [0x31, 0x42, 0x45, 0x4a];
@@ -269,7 +263,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
   const frames = Math.max(base.ch0Count, base.ch1Count);
   let endEstimated = false;
   if (!Number.isFinite(endMs) || endMs <= startMs) {
-    endMs = startMs + (frames > 1 ? ((frames - 1) / 30) * 1000 : 0);
+    endMs = endFromFrames(startMs, frames);
     endEstimated = true;
   } else if (durationExceedsContent(endMs - startMs, frames, base.packetCount)) {
     // **시각 출처를 가리지 않는 최후의 방어선이다.**
@@ -278,7 +272,7 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     // 없다. 그런 값이 나오면 그건 녹화 길이가 아니다. 조용히 믿으면 주차
     // 시간이 "녹화된 구간"으로 덮여 없는 기록을 있다고 말하게 된다.
     // 담긴 프레임으로 고치고 화면에 "길이 추정"이라고 밝힌다.
-    endMs = startMs + (frames > 1 ? ((frames - 1) / 30) * 1000 : 0);
+    endMs = endFromFrames(startMs, frames);
     endEstimated = true;
   }
 
@@ -406,17 +400,6 @@ async function scanForBlock(src: ByteSource, from: number, to: number): Promise<
   return -1;
 }
 
-/**
- * 이 길이를 담긴 내용이 받쳐 주는가.
- *
- * 영상 프레임 수와 전체 패킷 수 중 **큰 쪽**을 본다. 영상이 없는 파일
- * (음성만 남은 주차 녹화 등)도 패킷 수로는 가늠할 수 있기 때문이다.
- */
-export function durationExceedsContent(durationMs: number, frames: number, packets: number): boolean {
-  const units = Math.max(frames, packets);
-  if (units < 2) return false;
-  return durationMs > (units / MIN_RATE_PER_SEC) * 1000;
-}
 
 /** 파일 안에서 녹화가 끊긴 시간의 합. 블록 헤더의 시간 범위로 가른다. */
 const INNER_GAP_MIN_MS = 10_000;

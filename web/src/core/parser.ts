@@ -6,6 +6,7 @@ import type { ByteSource } from './byte-source';
 import { WindowReader } from './byte-source';
 import { Sha256 } from './sha256';
 import { systemTimeToMs } from './time';
+import { durationExceedsContent, endFromFrames } from './duration';
 import { TagKind, packTag, tagChannel, tagIsKeyframe, tagKind, tagString } from './tags';
 import { buildKeyChunk, extractParameterSets, findNalUnits, parseSps, NAL_IDR, NAL_PPS, NAL_SPS } from './nal';
 import type {
@@ -393,6 +394,16 @@ export async function parseJdr(
     y: Int32Array.from(gsY),
     z: Int32Array.from(gsZ),
   };
+
+  // **최후 방어선(프로브와 같은 기준).** 영상·음성 패킷 하나가 다음 날 시각을
+  // 달고 있으면 contentEndMs만 봐서는 못 거른다 — 72초짜리가 23시간으로 잡혔다.
+  // 담긴 프레임이 받쳐 주지 못하는 길이면 프레임 수로 되돌린다. 정상 파일은
+  // 이 자리에 오지 않는다.
+  const frames = Math.max(videoTimes[0].length, videoTimes[1].length);
+  if (Number.isFinite(contentEndMs) && Number.isFinite(firstTimeMs)
+      && durationExceedsContent(contentEndMs - firstTimeMs, frames, w)) {
+    contentEndMs = endFromFrames(firstTimeMs, frames);
+  }
 
   // 영상·음성이 하나도 없으면(GPS만 있는 파일) 어쩔 수 없이 마지막 패킷을 쓴다
   const playEndMs = Number.isFinite(contentEndMs) ? contentEndMs : lastTimeMs;

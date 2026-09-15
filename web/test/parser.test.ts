@@ -313,6 +313,20 @@ describe('재생 길이는 영상·음성이 끝나는 곳까지', () => {
     expect(doc.durationSec).toBeLessThan(2);
   });
 
+  it('영상·음성 패킷 하나가 다음 날 시각을 달아도 파일 길이가 늘어나지 않는다', async () => {
+    // 꼬리가 GPS·센서면 contentEndMs(영상·음성만)로 걸러진다. 그런데 영상·음성
+    // 패킷 자체가 다음 날 시각을 달고 있으면 contentEndMs가 그걸 집어 든다 —
+    // 실기에서 72초짜리가 목록엔 1분대인데 재생기엔 23시간으로 잡혔다.
+    // 담긴 프레임이 받쳐 주지 못하는 길이는 프레임 수로 되돌려야 한다.
+    for (const tailTag of ['00VP', '00AD']) {
+      const doc = await parseJdr(new BufferByteSource(buildJdrBlock(withTailPacket(tailTag)), 'tail-media.jdr'));
+      expect(doc.lastTimeMs, '마지막 패킷은 아침 것이 맞다').toBe(WAKE);
+      // 9시간 30분이 아니라 1초 안팎(프레임 수 기반 추정)이어야 한다
+      expect(doc.contentEndMs, `${tailTag} 꼬리`).toBeLessThan(START + 2000);
+      expect(doc.durationSec, `${tailTag} 꼬리`).toBeLessThan(2);
+    }
+  });
+
   it('영상·음성이 하나도 없으면 마지막 패킷을 쓴다 (길이가 0이 되면 안 된다)', async () => {
     const fix = (second: number) => gpsPayload({
       year: 2026, month: 9, day: 10, hour: 22, minute: 18, second,
