@@ -220,8 +220,37 @@ export class KakaoBackend implements MapBackend {
   private fixes: GpsFix[] = [];
   private current: GpsFix | null = null;
   private fitted = false;
+  private ro: ResizeObserver | null = null;
+  private settled = false;
 
   constructor(private readonly el: HTMLElement) {}
+
+  /** 칸 크기가 바뀌면 다시 잰다 (방향 전환·패널 접힘 등) — 확대는 유지 */
+  private watch(): void {
+    if (this.ro || typeof ResizeObserver === 'undefined') return;
+    let pending = 0;
+    this.ro = new ResizeObserver(() => {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(() => this.map?.relayout());
+    });
+    this.ro.observe(this.el);
+  }
+
+  /**
+   * 만들어질 때 칸 크기가 0이면 타일이 왼쪽 위 귀퉁이에만 깨져 그려진다(§2).
+   * 크기가 잡힐 때까지 여러 번 relayout + 전체 경로로 다시 프레이밍한다.
+   */
+  private settle(): void {
+    if (this.settled) return;
+    this.settled = true;
+    for (const ms of [0, 80, 250, 600]) {
+      setTimeout(() => {
+        if (!this.map) return;
+        this.map.relayout();
+        this.fitAll();
+      }, ms);
+    }
+  }
 
   private clearExtras(): void {
     for (const o of this.extras) o.setMap(null);
@@ -257,6 +286,8 @@ export class KakaoBackend implements MapBackend {
       this.cursor.setMap(this.map);
     }
     if (!this.fitted) { this.fitAll(); this.fitted = true; }
+    this.watch();
+    this.settle(); // 칸 크기 잡히면 relayout + 재프레이밍 (타일 깨짐 방지)
     return { shown: valid.length, dropped: fixes.length - valid.length };
   }
 
