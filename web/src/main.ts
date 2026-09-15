@@ -27,7 +27,7 @@ import { renderCalendar, type LoadStats } from './ui/calendar';
 import { renderSummary } from './ui/summary';
 import { hashSource } from './core/sha256';
 import { GpsMap } from './ui/map';
-import { preloadKakao, kakaoServicesReady, kakaoReverseGeocode } from './ui/kakao';
+import { preloadKakao, kakaoServicesReady, kakaoReverseGeocode, kakaoDiag } from './ui/kakao';
 import { setPreferredProvider } from './core/geocode';
 import { TimeCharts } from './ui/charts';
 import { renderRangeExport } from './ui/range-export';
@@ -1771,6 +1771,17 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
   moveMap.resetFit();
   moveMap.render(day.points.map(moveFixToGps));
   moveMap.invalidate();
+  // 진단: 어떤 지도인지 + 카카오 미사용 사유
+  const srcEl = document.getElementById('map-src');
+  if (srcEl) {
+    if (moveMap.kind === 'kakao') srcEl.textContent = '지도: 카카오 · ';
+    else {
+      const d = kakaoDiag();
+      let why = d.reason;
+      if (!why && d.state === 'loading') why = '카카오 로딩 중 — 목록으로 나갔다 다시 여세요';
+      srcEl.textContent = `지도: OSM${why ? `(${why})` : ''} · `;
+    }
+  }
   // 경로에 시각을 붙인다 — 눌러서 그 점 시각을, 시작·끝엔 라벨을
   const hhmmss = (ms: number): string => formatRecordedTime(ms, false).slice(11, 19);
   const hhmm = (ms: number): string => formatRecordedTime(ms, false).slice(11, 16);

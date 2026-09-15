@@ -232,16 +232,16 @@ export class GpsMap implements MapBackend {
   static validFixes = LeafletBackend.validFixes;
 
   private backend: MapBackend;
+  /** 실제로 고른 백엔드 — 진단 표시에 쓴다 */
+  readonly kind: 'kakao' | 'osm';
 
   constructor(el: HTMLElement) {
-    this.backend = GpsMap.makeBackend(el);
-  }
-
-  private static makeBackend(el: HTMLElement): MapBackend {
     if (kakaoReady()) {
-      try { return new KakaoBackend(el); } catch { /* OSM 으로 */ }
+      try { this.backend = new KakaoBackend(el); this.kind = 'kakao'; return; }
+      catch { /* OSM 으로 */ }
     }
-    return new LeafletBackend(el);
+    this.backend = new LeafletBackend(el);
+    this.kind = 'osm';
   }
 
   render(fixes: GpsFix[]): { shown: number; dropped: number } { return this.backend.render(fixes); }

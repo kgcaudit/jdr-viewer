@@ -145,7 +145,7 @@ export function renderMoveDay(
       <span id="move-seek-time" class="move-seek-time tnum">${escapeHtml(formatRecordedTime(start, false).slice(11, 19))}</span>
     </div>
     <div class="map-bar">
-      <p class="muted small" style="margin:0">${escapeHtml(day.sources.join(', ') || '')} · 경로를 눌러 시각을 봅니다</p>
+      <p class="muted small" style="margin:0"><span id="map-src"></span>${escapeHtml(day.sources.join(', ') || '')} · 경로를 눌러 시각을 봅니다</p>
       <span class="map-acts">
         <button class="btn btn-sm" type="button" id="move-fit">전체 경로</button>
       </span>

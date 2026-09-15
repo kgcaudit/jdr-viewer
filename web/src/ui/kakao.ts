@@ -23,11 +23,17 @@ import type { MapBackend } from './map-backend';
 const KAKAO_JS_KEY = 'e1c60a373716a5f2e90363a1bf1a01d5';
 // libraries=services 로 좌표→주소(coord2Address)까지 같은 SDK 로 쓴다
 const SDK_URL = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false&libraries=services`;
-const LOAD_TIMEOUT_MS = 6000;
+const LOAD_TIMEOUT_MS = 9000;
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'failed';
 let state: LoadState = 'idle';
 let loadPromise: Promise<boolean> | null = null;
+let failReason = '';
+
+/** 진단용 — 지금 지도 상태와 카카오 실패 사유(있으면) */
+export function kakaoDiag(): { state: string; reason: string } {
+  return { state, reason: failReason };
+}
 
 /** 지금 카카오 지도를 쓸 수 있나 (SDK 로드 완료 + maps 네임스페이스 존재) */
 export function kakaoReady(): boolean {
@@ -74,29 +80,43 @@ function eligible(): boolean {
 /** SDK 를 한 번만 부른다. 성공하면 kakaoReady()가 참이 된다. 실패해도 조용히 대체된다. */
 export function preloadKakao(): Promise<boolean> {
   if (loadPromise) return loadPromise;
-  if (!eligible()) { state = 'failed'; return Promise.resolve(false); }
+  if (!eligible()) {
+    state = 'failed';
+    failReason = mapOverride() === 'osm' ? 'OSM 강제(?map=osm)'
+      : (typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'file:// (호스팅 아님)'
+      : '대상 아님(localhost/미지원)';
+    return Promise.resolve(false);
+  }
   state = 'loading';
   loadPromise = new Promise<boolean>((resolve) => {
     let done = false;
-    const finish = (ok: boolean): void => {
+    const finish = (ok: boolean, reason = ''): void => {
       if (done) return;
       done = true;
       state = ok ? 'ready' : 'failed';
+      if (!ok) failReason = reason || failReason || '알 수 없음';
       resolve(ok);
     };
-    const timer = window.setTimeout(() => finish(false), LOAD_TIMEOUT_MS);
+    const timer = window.setTimeout(
+      () => finish(false, '로드 시간초과(도메인 미등록/네트워크 의심)'), LOAD_TIMEOUT_MS);
     try {
       const s = document.createElement('script');
       s.src = SDK_URL;
       s.async = true;
       s.onload = () => {
-        try {
-          window.kakao?.maps?.load(() => { window.clearTimeout(timer); finish(true); });
-        } catch { window.clearTimeout(timer); finish(false); }
+        // 도메인 미등록/키 오류면 정상 sdk.js 가 안 와서 maps.load 가 함수가 아니다
+        const load = window.kakao?.maps?.load;
+        if (typeof load !== 'function') {
+          window.clearTimeout(timer);
+          finish(false, '도메인 미등록/키 오류(maps 미정의)');
+          return;
+        }
+        try { load(() => { window.clearTimeout(timer); finish(true); }); }
+        catch { window.clearTimeout(timer); finish(false, 'maps.load 예외'); }
       };
-      s.onerror = () => { window.clearTimeout(timer); finish(false); };
+      s.onerror = () => { window.clearTimeout(timer); finish(false, '스크립트 로드 실패(차단/네트워크)'); };
       document.head.appendChild(s);
-    } catch { window.clearTimeout(timer); finish(false); }
+    } catch { window.clearTimeout(timer); finish(false, '스크립트 삽입 예외'); }
   });
   return loadPromise;
 }
