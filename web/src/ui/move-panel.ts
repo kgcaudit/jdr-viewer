@@ -23,21 +23,19 @@ export const MOVE_CLASS_COLOR: Record<TrackClass, string> = {
 const clock = (ms: number): string => formatRecordedTime(ms, false).slice(11, 16);
 
 export interface MoveListHandlers {
-  onUpload(): void;
-  onImport(): void;
-  onExport(): void;
   onOpenDay(dayKey: string): void;
 }
 
-/** 날짜 목록 */
+/** 날짜 목록. 올리기·저장 등 동작은 상단바에 있으므로 여기선 목록만 그린다. */
 export function renderMoveList(el: HTMLElement, days: MoveDaySummary[], persistent: boolean, h: MoveListHandlers): void {
   const warn = persistent ? '' :
     `<p class="status-warn small">이 브라우저에서는 자동 저장을 못 씁니다(시크릿/ file://).
-     파일로 내보내 두세요.</p>`;
+     상단 ⋯의 <strong>파일로 저장</strong>으로 내보내 두세요.</p>`;
 
   const rows = days.length === 0
     ? `<p class="muted small" style="margin-top:14px">아직 올린 이동기록이 없습니다.
-       <strong>위치기록 올리기</strong>로 도와줘 파일(.txt)을 올리세요. 여러 파일을 한 번에 고를 수 있습니다.</p>`
+       상단 <strong>위치기록 올리기</strong>로 도와줘 파일(.txt)을 올리세요.
+       여러 파일이나 폴더째로 올릴 수 있습니다.</p>`
     : `<ul class="move-days">` + days.map((d) => `<li>
         <button class="move-day" type="button" data-day="${escapeHtml(d.dayKey)}">
           <span class="move-day-date">${escapeHtml(formatShortDate(d.dayKey))}</span>
@@ -46,28 +44,11 @@ export function renderMoveList(el: HTMLElement, days: MoveDaySummary[], persiste
         </button>
       </li>`).join('') + `</ul>`;
 
-  el.innerHTML = `
-    ${warn}
-    <div class="move-actions">
-      <button class="btn btn-primary" type="button" id="move-upload">위치기록 올리기</button>
-      <button class="btn" type="button" id="move-import">파일에서 불러오기</button>
-      ${days.length > 0 ? '<button class="btn" type="button" id="move-export">파일로 저장</button>' : ''}
-    </div>
-    ${rows}`;
+  el.innerHTML = warn + rows;
 
-  el.querySelector('#move-upload')?.addEventListener('click', () => h.onUpload());
-  el.querySelector('#move-import')?.addEventListener('click', () => h.onImport());
-  el.querySelector('#move-export')?.addEventListener('click', () => h.onExport());
   el.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) => {
     b.addEventListener('click', () => h.onOpenDay(b.dataset.day ?? ''));
   });
-}
-
-export interface MoveDayHandlers {
-  onBack(): void;
-  onCompare(): void;
-  onExportCsv(): void;
-  onDelete(): void;
 }
 
 interface Seg { klass: TrackClass; fromMs: number; toMs: number; points: number; }
@@ -82,11 +63,11 @@ function foldSegments(m: MatchResult): Seg[] {
 }
 
 /**
- * 날짜별 상세.
+ * 날짜별 상세. 목록·대조·CSV·삭제는 상단바에 있으므로 여기선 지도·요약만 그린다.
  * @param compared 블랙박스 차량 GPS와 대조했는가 (안 했으면 '이 차량 주행'은 안 나온다)
  */
 export function renderMoveDay(
-  el: HTMLElement, day: MoveDay, m: MatchResult, compared: boolean, h: MoveDayHandlers,
+  el: HTMLElement, day: MoveDay, m: MatchResult, compared: boolean,
 ): void {
   const start = day.points.length ? day.points[0].t : NaN;
   const end = day.points.length ? day.points[day.points.length - 1].t : NaN;
@@ -115,12 +96,11 @@ export function renderMoveDay(
 
   const compareNote = compared
     ? `<p class="muted small">블랙박스 차량 GPS와 대조했습니다.</p>`
-    : `<p class="muted small">아직 차량과 대조하지 않았습니다 — <strong>블랙박스와 대조</strong>를 누르면
+    : `<p class="muted small">아직 차량과 대조하지 않았습니다 — 상단 <strong>⋯ → 블랙박스와 대조</strong>를 누르면
        같은 날짜 차량 GPS를 끌어와 "이 차량 주행"까지 가립니다.</p>`;
 
   el.innerHTML = `
     <div class="move-detail-head">
-      <button class="btn btn-sm" type="button" id="move-day-back">‹ 목록</button>
       <strong>${escapeHtml(formatShortDate(day.dayKey))}</strong>
       <span class="muted small">${num(day.points.length)}점 · ${escapeHtml(clock(start))}~${escapeHtml(clock(end))}</span>
     </div>
@@ -129,21 +109,11 @@ export function renderMoveDay(
       <p class="muted small" style="margin:0">${escapeHtml(day.sources.join(', ') || '')}</p>
       <span class="map-acts">
         <button class="btn btn-sm" type="button" id="move-fit">전체 경로</button>
-        <button class="btn btn-sm" type="button" id="move-compare">블랙박스와 대조</button>
       </span>
     </div>
     ${compareNote}
     ${bars}
-    ${table}
-    <div class="move-actions" style="margin-top:10px">
-      <button class="btn" type="button" id="move-export-csv">대조 결과 CSV</button>
-      <button class="btn" type="button" id="move-delete">이 날짜 지우기</button>
-    </div>`;
-
-  el.querySelector('#move-day-back')?.addEventListener('click', () => h.onBack());
-  el.querySelector('#move-compare')?.addEventListener('click', () => h.onCompare());
-  el.querySelector('#move-export-csv')?.addEventListener('click', () => h.onExportCsv());
-  el.querySelector('#move-delete')?.addEventListener('click', () => h.onDelete());
+    ${table}`;
 }
 
 /** 대조 결과를 CSV로 (감사 근거: 원 좌표·판정을 모두 남긴다) */

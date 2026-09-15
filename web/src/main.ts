@@ -32,8 +32,8 @@ import { renderRangeExport } from './ui/range-export';
 import { parsePhoneTrack } from './core/phone-track';
 import { matchTracks, type MatchResult } from './core/track-match';
 import {
-  MoveStore, MOVE_FILE_NAME, movePointToFix, parseMoveFile, serializeMoveDays,
-  MoveFileError, type MoveDay, type MoveDaySummary, type MovePoint,
+  MoveStore, MOVE_FILE_NAME, movePointToFix, serializeMoveDays,
+  type MoveDay, type MoveDaySummary, type MovePoint,
 } from './core/move-store';
 import { renderMoveList, renderMoveDay, trackMatchCsv } from './ui/move-panel';
 import { CarTrackStore, type CarPoint } from './core/car-track-store';
@@ -49,7 +49,7 @@ import { attachStripScrub } from './ui/strip-scrub';
 import { renderBookmarkPanel } from './ui/bookmarks';
 import { renderSpeechPanel, type SpeechPanelState } from './ui/speech';
 import { analyzeSegment, buildSpeechCsv, buildSpeechWav, type SpeechResult } from './core/speech';
-import { bytes, num } from './ui/format';
+import { bytes, escapeHtml, num } from './ui/format';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -118,27 +118,132 @@ let currentView: keyof typeof views = 'empty';
 function showView(name: keyof typeof views): void {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
   currentView = name;
-  $('btn-back-calendar').hidden = !(name === 'main' && folderState !== null);
-  syncStarVisibility();
+  applyTopbar();
   syncWakeChip(name);
-}
-
-/**
- * 별을 언제 띄울지.
- *
- * 처음엔 폴더가 열려 있을 때만 띄웠다. 그런데 즐겨찾기는 **폴더를 열기 전에**
- * 필요한 것이다 — 담아 둔 지점으로 바로 가려고 쓰는 것이기 때문이다.
- * 첫 화면(view-empty)에서 별이 안 보이니 사용자는 폴더를 열고 날짜를 찾아 들어간 뒤에야
- * 즐겨찾기를 누를 수 있었다. 담아 둔 것이 있으면 어디서나 띄운다.
- */
-function syncStarVisibility(): void {
-  const useful = currentView === 'main' || currentView === 'calendar' ||
-    (currentView === 'empty' && bookmarkCount > 0);
-  $('btn-bookmarks').hidden = !useful;
 }
 
 /** showView가 bookmarks 선언보다 먼저 돌 수 있어 개수만 따로 둔다 */
 let bookmarkCount = 0;
+/** 이동기록 공간에서 지금 상세를 보고 있는가 (상단바 버튼이 목록/상세로 갈린다) */
+let moveDetailOpen = false;
+
+// ── 맥락 상단바 ──────────────────────────────────────
+//
+// 상단바가 블랙박스 전용으로 고정돼 있으면 이동기록이 혹처럼 붙는다. 대신
+// 좌측은 공간 전환기, 우측은 **그 페이지 전용 버튼**(주 버튼 + ⋯ 더보기)로
+// 페이지마다 통째로 바꾼다.
+interface TbItem { id?: string; label: string; onClick: () => void; primary?: boolean; badge?: number; }
+
+/** 담아 둔 즐겨찾기로 가는 별 항목 (개수 뱃지 포함) */
+function starItem(): TbItem {
+  return { id: 'btn-bookmarks', label: '★', badge: bookmarkCount, onClick: openBookmarks };
+}
+
+function applyTopbar(): void {
+  closeMenus();
+  let space = 'JDR Viewer';
+  let primary: TbItem[] = [];
+  let more: TbItem[] = [];
+  switch (currentView) {
+    case 'empty':
+      // 즐겨찾기는 폴더를 열기 전에도 쓰므로, 담아 둔 게 있으면 별을 띄운다
+      if (bookmarkCount > 0) primary = [starItem()];
+      break;
+    case 'calendar':
+      space = '블랙박스';
+      // 재생·달력에서는 즐겨찾기를 늘 쓰므로 별을 항상 둔다(개수 0이어도)
+      primary = [{ id: 'btn-open-folder', label: '폴더 열기', onClick: openFolderPicker, primary: true }, starItem()];
+      more = [{ id: 'btn-open', label: '파일 열기', onClick: openFilePicker }];
+      break;
+    case 'main':
+      space = '블랙박스';
+      primary = folderState ? [{ id: 'btn-back-calendar', label: '‹ 날짜', onClick: gotoCalendar }] : [];
+      primary.push(starItem());
+      more = [{ id: 'btn-open', label: '파일 열기', onClick: openFilePicker }];
+      break;
+    case 'move':
+      space = '이동기록';
+      if (moveDetailOpen) {
+        primary = [{ id: 'move-day-back', label: '‹ 목록', onClick: moveBack }];
+        more = [
+          { id: 'move-compare', label: '블랙박스와 대조', onClick: moveCompare },
+          { id: 'move-export-csv', label: '대조 결과 CSV', onClick: moveCsv },
+          { id: 'move-delete', label: '이 날짜 지우기', onClick: moveDelete },
+        ];
+      } else {
+        primary = [{ id: 'move-upload', label: '위치기록 올리기', onClick: moveUpload, primary: true }];
+        more = [
+          { id: 'move-folder-upload', label: '폴더 올리기', onClick: moveFolderUpload },
+          { id: 'move-export', label: '파일로 저장', onClick: moveExport },
+        ];
+      }
+      break;
+  }
+  renderTopbar(space, primary, more);
+}
+
+let currentMore: TbItem[] = [];
+function renderTopbar(space: string, primary: TbItem[], more: TbItem[]): void {
+  $('space-name').textContent = space;
+  currentMore = more;
+  const bar = $('topbar-actions');
+  bar.innerHTML =
+    primary.map((it) =>
+      `<button class="btn${it.primary ? ' btn-primary' : ''}${it.badge !== undefined ? ' btn-star' : ''}" type="button"${it.id ? ` id="${it.id}"` : ''} data-tb>${escapeHtml(it.label)}${it.badge !== undefined ? `<span id="bm-count" class="star-count">${it.badge}</span>` : ''}</button>`).join('') +
+    (more.length ? `<button class="btn btn-icon" type="button" id="tb-more-btn" aria-label="더보기" aria-haspopup="menu">⋯</button>` : '');
+  primary.forEach((it, i) => {
+    bar.querySelectorAll<HTMLButtonElement>('[data-tb]')[i]?.addEventListener('click', it.onClick);
+  });
+  bar.querySelector('#tb-more-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleMenu($('more-menu'), $('tb-more-btn'), currentMore);
+  });
+}
+
+/** 팝업 메뉴를 트리거 아래에 띄운다 */
+function toggleMenu(menu: HTMLElement, trigger: HTMLElement, items: TbItem[]): void {
+  if (!menu.hidden) { menu.hidden = true; return; }
+  closeMenus();
+  menu.innerHTML = items.map((it, i) =>
+    `<button class="menu-item" type="button" data-mi="${i}"${it.id ? ` id="${it.id}"` : ''}>${escapeHtml(it.label)}</button>`).join('');
+  menu.querySelectorAll<HTMLButtonElement>('[data-mi]').forEach((b) => {
+    const idx = Number(b.dataset.mi);
+    b.addEventListener('click', () => { menu.hidden = true; items[idx].onClick(); });
+  });
+  const r = trigger.getBoundingClientRect();
+  menu.style.top = `${Math.round(r.bottom + 4)}px`;
+  // 오른쪽 정렬(트리거 오른쪽 끝에 맞춤), 화면 밖으로 안 나가게
+  menu.hidden = false;
+  const mw = menu.offsetWidth;
+  menu.style.left = `${Math.max(8, Math.round(r.right - mw))}px`;
+}
+
+function closeMenus(): void {
+  const sm = document.getElementById('space-menu');
+  const mm = document.getElementById('more-menu');
+  if (sm) sm.hidden = true;
+  if (mm) mm.hidden = true;
+  document.getElementById('space-switch')?.setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('click', () => closeMenus());
+
+// 공간 전환기 — 처음/블랙박스/이동기록
+$('space-switch').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const menu = $('space-menu');
+  const items: TbItem[] = [
+    { label: '처음', onClick: () => showView('empty') },
+    { label: '블랙박스', onClick: () => { if (folderState) showView('calendar'); else openFolderPicker(); } },
+    { label: '이동기록', onClick: () => enterMove() },
+  ];
+  if (menu.hidden) $('space-switch').setAttribute('aria-expanded', 'true');
+  toggleMenu(menu, $('space-switch'), items);
+  // 공간 메뉴는 왼쪽 정렬
+  if (!menu.hidden) {
+    const r = $('space-switch').getBoundingClientRect();
+    menu.style.left = `${Math.round(r.left)}px`;
+  }
+});
 
 function setControlsEnabled(enabled: boolean): void {
   for (const id of CONTROL_IDS) {
@@ -164,16 +269,17 @@ function showError(msg: string): void {
 const fileInput = $<HTMLInputElement>('file-input');
 const folderInput = $<HTMLInputElement>('folder-input');
 
-$('btn-open').addEventListener('click', () => fileInput.click());
-$('btn-open-2').addEventListener('click', () => fileInput.click());
-$('btn-retry').addEventListener('click', () => fileInput.click());
-$('btn-open-folder').addEventListener('click', () => folderInput.click());
-$('btn-open-folder-2').addEventListener('click', () => folderInput.click());
-$('btn-back-calendar').addEventListener('click', () => {
+function openFilePicker(): void { fileInput.click(); }
+function openFolderPicker(): void { folderInput.click(); }
+function gotoCalendar(): void {
   if (!folderState) return;
   session?.player.pause();
   showView('calendar');
-});
+}
+// 시작화면 카드·오류 화면의 버튼은 그대로. 상단바의 폴더/파일/날짜는 applyTopbar가 만든다.
+$('btn-open-2').addEventListener('click', openFilePicker);
+$('btn-retry').addEventListener('click', openFilePicker);
+$('btn-open-folder-2').addEventListener('click', openFolderPicker);
 
 fileInput.addEventListener('change', () => {
   const f = fileInput.files?.[0];
@@ -1407,9 +1513,11 @@ function refreshBookmarkUi(force = false): void {
   lastStarState = state;
 
   bookmarkCount = bookmarks.length;
-  syncStarVisibility();
-  $('bm-count').textContent = String(bookmarks.length);
-  $('btn-bookmarks').classList.toggle('is-empty', bookmarks.length === 0);
+  // 별은 상단바에 동적으로 있으므로, 개수가 바뀔 때만 상단바를 다시 그린다
+  // (매 프레임 다시 그리면 낭비다). 그 사이엔 뱃지 숫자만 고친다.
+  const badge = document.getElementById('bm-count');
+  if (badge) badge.textContent = String(bookmarks.length);
+  if (listChanged) applyTopbar();
 
   const add = $('btn-bookmark');
   add.textContent = on ? '★' : '☆';
@@ -1557,10 +1665,10 @@ function saveBookmarkFile(): void {
   toast(`${BOOKMARK_FILE_NAME} 저장 · ${num(bookmarks.length)}개`);
 }
 
-$('btn-bookmarks').addEventListener('click', () => {
+function openBookmarks(): void {
   if ($('bm-overlay').hidden) openBookmarkPanel();
   else closeBookmarkPanel();
-});
+}
 $('btn-bookmark').addEventListener('click', () => toggleBookmarkHere());
 $('bm-overlay').addEventListener('click', (e) => {
   // 패널 바깥(어두운 곳)을 누르면 닫는다
@@ -1597,7 +1705,11 @@ function moveFixToGps(p: MovePoint): GpsFix {
   };
 }
 
+/** 지금 이동기록 상세로 열려 있는 날짜 (상단바 대조·CSV·삭제가 대상으로 삼는다) */
+let moveCurrentDayKey = '';
+
 function enterMove(): void {
+  moveDetailOpen = false;
   showView('move');
   $('move-detail').hidden = true;
   $('move-list').hidden = false;
@@ -1607,14 +1719,6 @@ function enterMove(): void {
 async function refreshMoveList(): Promise<void> {
   moveDays = await moveStore.listDays();
   renderMoveList($('move-list'), moveDays, moveStore.persistent, {
-    onUpload: () => $('move-file-input').click(),
-    onImport: () => $('move-import-input').click(),
-    onExport: async () => {
-      const days = await moveStore.allDays();
-      if (days.length === 0) { toast('내보낼 이동기록이 없습니다'); return; }
-      downloadFile(new Blob([serializeMoveDays(days)], { type: 'application/json' }), MOVE_FILE_NAME);
-      toast(`${MOVE_FILE_NAME} 저장 · ${num(days.length)}일`);
-    },
     onOpenDay: (dayKey) => void openMoveDay(dayKey),
   });
 }
@@ -1622,8 +1726,11 @@ async function refreshMoveList(): Promise<void> {
 function backToMoveList(): void {
   moveMatch = null;
   moveMap = null;
+  moveCurrentDayKey = '';
+  moveDetailOpen = false;
   $('move-detail').hidden = true;
   $('move-list').hidden = false;
+  applyTopbar();
   void refreshMoveList();
 }
 
@@ -1633,9 +1740,12 @@ async function openMoveDay(dayKey: string): Promise<void> {
   // 이 날짜 차량 GPS가 이미 저장돼 있으면(그날 블랙박스를 열어 스캔한 적 있으면)
   // 바로 대조한다. 없으면 휴대폰만으로 보행/체류/다른 이동을 가른다.
   const car = await carStore.getDay(dayKey);
+  moveCurrentDayKey = dayKey;
+  moveDetailOpen = true;
   showMoveDetail(day, car);
   $('move-list').hidden = true;
   $('move-detail').hidden = false;
+  applyTopbar();
 }
 
 /** 이동기록 날짜 상세를 그린다 (차량 GPS가 있으면 "이 차량 주행"까지 가른다) */
@@ -1644,20 +1754,7 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
   const fixes = day.points.map(movePointToFix);
   moveMatch = matchTracks(car.map((c) => ({ timeMs: c.t, lat: c.lat, lon: c.lon })), fixes);
 
-  const detail = $('move-detail');
-  renderMoveDay(detail, day, moveMatch, compared, {
-    onBack: backToMoveList,
-    onCompare: () => void compareDay(day.dayKey),
-    onExportCsv: () => {
-      if (!moveMatch) return;
-      downloadFile(new Blob([trackMatchCsv(moveMatch)], { type: 'text/csv' }), `dongseon_${day.dayKey}.csv`);
-      toast('CSV 저장');
-    },
-    onDelete: () => {
-      if (!confirm(`${day.dayKey} 이동기록을 지울까요?`)) return;
-      void moveStore.removeDay(day.dayKey).then(() => { toast('지웠습니다'); backToMoveList(); });
-    },
-  });
+  renderMoveDay($('move-detail'), day, moveMatch, compared);
 
   // 지도 (상세를 다시 그릴 때마다 #move-map 요소가 새로 생기므로 새로 만든다)
   moveMap = new GpsMap($('move-map'));
@@ -1667,6 +1764,28 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
   document.getElementById('move-fit')?.addEventListener('click', () => {
     if (!moveMap?.fitAll()) toast('표시할 경로가 없습니다');
   });
+}
+
+// ── 이동기록 상단바 동작 ─────────────────────────────
+function moveUpload(): void { $('move-file-input').click(); }
+function moveFolderUpload(): void { $('move-folder-input').click(); }
+function moveBack(): void { backToMoveList(); }
+function moveCompare(): void { void compareDay(moveCurrentDayKey); }
+function moveCsv(): void {
+  if (!moveMatch) return;
+  downloadFile(new Blob([trackMatchCsv(moveMatch)], { type: 'text/csv' }), `dongseon_${moveCurrentDayKey}.csv`);
+  toast('CSV 저장');
+}
+function moveDelete(): void {
+  const dayKey = moveCurrentDayKey;
+  if (!dayKey || !confirm(`${dayKey} 이동기록을 지울까요?`)) return;
+  void moveStore.removeDay(dayKey).then(() => { toast('지웠습니다'); backToMoveList(); });
+}
+async function moveExport(): Promise<void> {
+  const days = await moveStore.allDays();
+  if (days.length === 0) { toast('내보낼 이동기록이 없습니다'); return; }
+  downloadFile(new Blob([serializeMoveDays(days)], { type: 'application/json' }), MOVE_FILE_NAME);
+  toast(`${MOVE_FILE_NAME} 저장 · ${num(days.length)}일`);
 }
 
 /** '블랙박스와 대조' — 저장된 그날 차량 GPS를 끌어와 다시 가른다 */
@@ -1683,22 +1802,15 @@ async function compareDay(dayKey: string): Promise<void> {
 }
 
 $('btn-move-enter').addEventListener('click', () => enterMove());
-$('btn-move-home').addEventListener('click', () => showView('empty'));
-// 브랜드 로고를 누르면 시작화면(두 공간)으로 — 공간을 오가는 길
-document.querySelector('.brand')?.addEventListener('click', () => {
-  session?.player.pause();
-  showView('empty');
-});
 
-$<HTMLInputElement>('move-file-input').addEventListener('change', async (e) => {
-  const input = e.target as HTMLInputElement;
-  const files = Array.from(input.files ?? []);
-  input.value = '';
+/** 여러 파일(또는 폴더 안 파일들)을 병합 업로드한다. 같은 시각 점은 저장소가 하나로 합친다. */
+async function ingestMoveFiles(files: File[]): Promise<void> {
   if (files.length === 0) return;
   let addedTotal = 0;
   const daySet = new Set<string>();
   let failed = 0;
   for (const file of files) {
+    if (!/\.(txt|json)$/i.test(file.name)) continue;
     try {
       const fixes = parsePhoneTrack(await file.text());
       const res = await moveStore.mergeUpload(fixes, file.name);
@@ -1709,22 +1821,20 @@ $<HTMLInputElement>('move-file-input').addEventListener('change', async (e) => {
   }
   await refreshMoveList();
   const msg = `${num(daySet.size)}일 · ${num(addedTotal)}점 병합${failed > 0 ? ` · ${num(failed)}개 실패` : ''}`;
-  toast(addedTotal > 0 || daySet.size > 0 ? msg : '새로 병합된 점이 없습니다 (이미 있는 기록)');
-});
+  toast(daySet.size > 0 ? msg : '새로 병합된 점이 없습니다 (이미 있는 기록)');
+}
 
-$<HTMLInputElement>('move-import-input').addEventListener('change', async (e) => {
+$<HTMLInputElement>('move-file-input').addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
+  const files = Array.from(input.files ?? []);
   input.value = '';
-  if (!file) return;
-  try {
-    const days = parseMoveFile(await file.text());
-    const added = await moveStore.mergeDays(days);
-    await refreshMoveList();
-    toast(`${num(days.length)}일 불러옴 · ${num(added)}점 병합`);
-  } catch (err) {
-    toast(err instanceof MoveFileError ? err.message : (err instanceof Error ? err.message : String(err)));
-  }
+  void ingestMoveFiles(files);
+});
+$<HTMLInputElement>('move-folder-input').addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  void ingestMoveFiles(files);
 });
 
 $<HTMLInputElement>('bm-file-input').addEventListener('change', async (e) => {

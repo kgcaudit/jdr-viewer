@@ -10,19 +10,17 @@
   </head>
   <body>
     <header class="topbar">
-      <div class="brand">
+      <!-- 좌: 공간 전환기 (누르면 처음/블랙박스/이동기록) -->
+      <button class="space-switch" id="space-switch" type="button" aria-haspopup="menu" aria-expanded="false">
         <span class="brand-mark" aria-hidden="true">▤</span>
-        <span class="brand-text">JDR Viewer</span>
-        <span class="badge">프로토타입</span>
-      </div>
-      <div class="topbar-actions">
-        <button id="btn-back-calendar" class="btn" type="button" hidden>‹ <span class="lbl-full">날짜 선택</span><span class="lbl-short">날짜</span></button>
-        <button id="btn-bookmarks" class="btn btn-star" type="button" hidden aria-label="즐겨찾기" title="즐겨찾기">★<span id="bm-count" class="star-count">0</span></button>
-        <span class="privacy" title="파일은 브라우저 안에서만 처리됩니다">🔒 업로드 없음</span>
-        <button id="btn-open-folder" class="btn" type="button">폴더<span class="lbl-full"> 열기</span></button>
-        <button id="btn-open" class="btn btn-primary" type="button">파일<span class="lbl-full"> 열기</span></button>
-      </div>
+        <span class="space-name" id="space-name">JDR Viewer</span>
+        <span class="caret" aria-hidden="true">▾</span>
+      </button>
+      <!-- 우: 그 페이지 전용 버튼(주 버튼 + ⋯ 더보기). 페이지마다 통째로 바뀐다. -->
+      <div class="topbar-actions" id="topbar-actions"></div>
     </header>
+    <div class="menu-pop" id="space-menu" role="menu" hidden></div>
+    <div class="menu-pop" id="more-menu" role="menu" hidden></div>
 
     <div id="bm-overlay" class="bm-overlay" hidden>
       <div id="bm-panel" class="bm-panel" role="dialog" aria-modal="true" aria-label="즐겨찾기"></div>
@@ -32,7 +30,7 @@
     <input id="file-input" type="file" accept=".jdr,application/octet-stream" hidden />
     <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
     <input id="move-file-input" type="file" accept=".txt,.json,application/json,text/plain" multiple hidden />
-    <input id="move-import-input" type="file" accept=".json,application/json" hidden />
+    <input id="move-folder-input" type="file" webkitdirectory directory multiple hidden />
 
     <!-- 시작화면 — 두 공간으로 나뉜다: 블랙박스 / 이동기록 -->
     <main id="view-empty" class="view">
@@ -99,13 +97,9 @@
       </div>
     </main>
 
-    <!-- 이동기록 공간 (블랙박스와 분리) -->
+    <!-- 이동기록 공간 (블랙박스와 분리). 제목·동작은 상단바가 맡는다. -->
     <main id="view-move" class="view" hidden>
       <div class="move-wrap">
-        <div class="move-head">
-          <button id="btn-move-home" class="btn btn-sm" type="button">‹ 처음</button>
-          <h2 class="move-title">이동기록</h2>
-        </div>
         <div id="move-list"></div>
         <div id="move-detail" hidden></div>
       </div>

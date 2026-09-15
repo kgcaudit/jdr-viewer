@@ -1624,3 +1624,24 @@ test('대조 — 블랙박스 스캔이 저장한 차량 GPS로 이 차량 주�
   // 저장된 차량 GPS가 있으니 자동으로 대조되어 '이 차량 주행'이 나온다
   await expect(page.locator('.track-bars')).toContainText('이 차량 주행');
 });
+
+
+test('이동기록 — 폴더째 올리면 파일들이 날짜별로 병합된다', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+
+  const mk = (rows: {t:string; la:number; lo:number}[]) =>
+    JSON.stringify({ success:true, data:[rows.map((r)=>({ timestamp:r.t, latitude:r.la, longitude:r.lo, accuracy:10, speed:0, battery:80, address:'', provider:'gps', activity_type:'STILL', staytime:0 }))], errors:[] });
+  const sub = mkdtempSync(join(tmpdir(), 'movefolder-'));
+  writeFileSync(join(sub, '2026.09.12.txt'), mk([{ t:'2026-09-12 08:00:00', la:37.50, lo:127.00 }]));
+  writeFileSync(join(sub, '2026.09.12b.txt'), mk([{ t:'2026-09-12 09:00:00', la:37.51, lo:127.01 }]));
+  writeFileSync(join(sub, '2026.09.13.txt'), mk([{ t:'2026-09-13 08:00:00', la:37.52, lo:127.02 }]));
+
+  // ⋯ → 폴더 올리기 (입력에 폴더째 넣는다)
+  await page.locator('#move-folder-input').setInputFiles(sub);
+  await page.waitForTimeout(300);
+
+  await expect(page.locator('.move-day')).toHaveCount(2);
+  await expect(page.locator('[data-day="2026-09-12"]')).toContainText('2점'); // 두 파일 병합
+  rmSync(sub, { recursive: true, force: true });
+});
