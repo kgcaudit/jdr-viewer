@@ -580,7 +580,7 @@ export async function buildCompositeMp4(
       if (rearFrame) ctx.drawImage(rearFrame, 0, cellH, cellW, cellH);
       label('전방 CH0', 8, 8);
       if (rearFrame) label('후방 CH1', 8, cellH + 8);
-      label('JDR Viewer 합성', 8, outH - 32);
+      label('Movement Analysis System 합성', 8, outH - 32);
 
       const tsSec = f.timestamp / 1_000_000;
       f.close();

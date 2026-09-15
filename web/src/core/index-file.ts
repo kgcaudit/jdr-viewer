@@ -71,7 +71,7 @@ export function buildIndexFile(items: { seg: SegmentInfo; file: File }[]): Index
     format: INDEX_FORMAT,
     version: INDEX_VERSION,
     generatedAt: new Date().toISOString(),
-    note: 'JDR Viewer가 만든 폴더 인덱스입니다. 이 폴더에 두면 다음에 열 때 헤더 훑기를 건너뜁니다. 원본 JDR은 건드리지 않습니다.',
+    note: 'Movement Analysis System가 만든 폴더 인덱스입니다. 이 폴더에 두면 다음에 열 때 헤더 훑기를 건너뜁니다. 원본 JDR은 건드리지 않습니다.',
     count: rows.length,
     fields: FIELDS,
     rows,
@@ -100,7 +100,7 @@ export function parseIndexFile(text: string): Map<string, IndexEntry> {
   }
   const obj = raw as Partial<IndexFile>;
   if (obj.format !== INDEX_FORMAT) {
-    throw new IndexFileError('JDR Viewer 인덱스 파일이 아닙니다');
+    throw new IndexFileError('Movement Analysis System 인덱스 파일이 아닙니다');
   }
   if (typeof obj.version !== 'number' || obj.version > INDEX_VERSION) {
     throw new IndexFileError(`지원하지 않는 인덱스 버전입니다 (${String(obj.version)})`);

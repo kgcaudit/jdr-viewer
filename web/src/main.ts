@@ -145,11 +145,12 @@ function starItem(): TbItem {
 
 function applyTopbar(): void {
   closeMenus();
-  let space = 'JDR Viewer';
+  let space = 'Movement Analysis System';
   let primary: TbItem[] = [];
   let more: TbItem[] = [];
   switch (currentView) {
     case 'empty':
+      space = 'HOME';
       // 즐겨찾기는 폴더를 열기 전에도 쓰므로, 담아 둔 게 있으면 별을 띄운다
       if (bookmarkCount > 0) primary = [starItem()];
       break;
@@ -187,8 +188,8 @@ function applyTopbar(): void {
           ? [{ id: 'move-overview-btn', label: '전체 요약', onClick: () => void enterMoveOverview(), primary: true }]
           : [];
         more = [
-          { id: 'move-upload', label: '파일 올리기(위치·차량)', onClick: moveUpload },
-          { id: 'move-folder-upload', label: '폴더 올리기', onClick: moveFolderUpload },
+          { id: 'move-upload', label: '파일 열기(위치·차량)', onClick: moveUpload },
+          { id: 'move-folder-upload', label: '폴더 열기', onClick: moveFolderUpload },
           { id: 'car-csv', label: '차량 GPS(CSV) 불러오기', onClick: carCsvUpload },
           { id: 'move-export', label: '파일로 저장', onClick: moveExport },
           { id: 'move-clear-all', label: '전체 삭제', onClick: moveClearAll },
@@ -249,7 +250,7 @@ $('space-switch').addEventListener('click', (e) => {
   e.stopPropagation();
   const menu = $('space-menu');
   const items: TbItem[] = [
-    { label: '처음', onClick: () => showView('empty') },
+    { label: 'HOME', onClick: () => showView('empty') },
     { label: '블랙박스', onClick: () => { if (folderState) showView('calendar'); else openFolderPicker(); } },
     { label: '이동기록', onClick: () => enterMove() },
   ];

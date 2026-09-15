@@ -125,7 +125,7 @@ export function serializeBookmarks(list: Bookmark[]): string {
     format: BOOKMARK_FORMAT,
     version: BOOKMARK_VERSION,
     generatedAt: new Date().toISOString(),
-    note: 'JDR Viewer 즐겨찾기입니다. 불러오기로 되살릴 수 있습니다. 원본 JDR은 건드리지 않습니다.',
+    note: 'Movement Analysis System 즐겨찾기입니다. 불러오기로 되살릴 수 있습니다. 원본 JDR은 건드리지 않습니다.',
     count: list.length,
     marks: sortBookmarks(list),
   };
@@ -140,7 +140,7 @@ export function parseBookmarks(text: string): Bookmark[] {
     throw new BookmarkFileError('즐겨찾기 파일이 올바른 JSON이 아닙니다');
   }
   const obj = raw as Partial<BookmarkFile>;
-  if (obj.format !== BOOKMARK_FORMAT) throw new BookmarkFileError('JDR Viewer 즐겨찾기 파일이 아닙니다');
+  if (obj.format !== BOOKMARK_FORMAT) throw new BookmarkFileError('Movement Analysis System 즐겨찾기 파일이 아닙니다');
   if (typeof obj.version !== 'number' || obj.version > BOOKMARK_VERSION) {
     throw new BookmarkFileError(`지원하지 않는 즐겨찾기 버전입니다 (${String(obj.version)})`);
   }

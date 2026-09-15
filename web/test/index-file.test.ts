@@ -72,7 +72,7 @@ describe('인덱스 파일', () => {
 
   it('읽을 수 없는 파일은 사유를 남긴다 (조용히 무시하지 않는다)', () => {
     expect(() => parseIndexFile('not json')).toThrow(IndexFileError);
-    expect(() => parseIndexFile('{"format":"other"}')).toThrow(/JDR Viewer 인덱스 파일이 아닙니다/);
+    expect(() => parseIndexFile('{"format":"other"}')).toThrow(/Movement Analysis System 인덱스 파일이 아닙니다/);
     expect(() => parseIndexFile('{"format":"jdr-viewer-index","version":99,"rows":[]}'))
       .toThrow(/지원하지 않는 인덱스 버전/);
     // 옛 버전은 조용히 쓰지 않고 다시 읽게 한다 (계산 방식이 바뀌었으므로)

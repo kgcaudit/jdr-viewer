@@ -68,7 +68,7 @@ describe('파일 저장·불러오기', () => {
     expect(back[0]).toMatchObject({ path: 'data/a.jdr', relMs: 30_000, label: '먼저' });
   });
 
-  it('JDR Viewer 파일이 아니면 사유를 알린다', () => {
+  it('형식이 맞지 않으면 사유를 알린다', () => {
     expect(() => parseBookmarks('{"format":"다른거"}')).toThrow(BookmarkFileError);
     expect(() => parseBookmarks('{ 이건 JSON이 아님')).toThrow(/JSON/);
   });

@@ -134,7 +134,7 @@ export function serializeMoveDays(days: MoveDay[]): string {
     format: MOVE_FORMAT,
     version: MOVE_VERSION,
     generatedAt: new Date().toISOString(),
-    note: 'JDR Viewer 이동기록입니다. 불러오기로 되살릴 수 있습니다. 원본은 건드리지 않습니다.',
+    note: 'Movement Analysis System 이동기록입니다. 불러오기로 되살릴 수 있습니다. 원본은 건드리지 않습니다.',
     days,
   };
   return JSON.stringify(file) + '\n';
@@ -144,7 +144,7 @@ export function parseMoveFile(text: string): MoveDay[] {
   let raw: unknown;
   try { raw = JSON.parse(text); } catch { throw new MoveFileError('이동기록 파일이 올바른 JSON이 아닙니다'); }
   const obj = raw as Partial<MoveFile>;
-  if (obj.format !== MOVE_FORMAT) throw new MoveFileError('JDR Viewer 이동기록 파일이 아닙니다');
+  if (obj.format !== MOVE_FORMAT) throw new MoveFileError('Movement Analysis System 이동기록 파일이 아닙니다');
   if (typeof obj.version !== 'number' || obj.version > MOVE_VERSION) {
     throw new MoveFileError(`지원하지 않는 이동기록 버전입니다 (${String(obj.version)})`);
   }

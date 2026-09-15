@@ -66,7 +66,7 @@ export function renderMoveList(el: HTMLElement, days: MoveDaySummary[], persiste
 
   const rows = days.length === 0
     ? `<p class="muted small" style="margin-top:14px">아직 올린 이동기록이 없습니다.
-       상단 <strong>⋯ → 파일 올리기</strong> 또는 <strong>폴더 올리기</strong>로 도와줘 기록(.txt)을 올리세요.</p>`
+       상단 <strong>⋯ → 파일 열기</strong> 또는 <strong>폴더 열기</strong>로 도와줘 기록(.txt)·차량 CSV를 여세요.</p>`
     : `<ul class="move-days">` + days.map((d) => `<li>
         <button class="move-day" type="button" data-day="${escapeHtml(d.dayKey)}">
           <span class="move-day-date">${escapeHtml(formatShortDate(d.dayKey))}</span>
