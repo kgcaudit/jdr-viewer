@@ -1737,3 +1737,32 @@ test('이동기록 — 전체 삭제로 모든 날짜를 한 번에 지운다', 
   await expect(page.locator('.move-day')).toHaveCount(0);
 });
 
+test('이동기록 — 차량 GPS CSV 를 불러와 대조하면 "이 차량 주행"이 나온다', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  // 휴대폰: 09:00~09:01 주행(같은 자리로 조금씩), staytime 짧게
+  const rows = [0, 30, 60].map((s) => {
+    const mm = Math.floor(s / 60), ss = s % 60;
+    return { timestamp:`2026-09-12 09:0${mm}:${String(ss).padStart(2,'0')}`, latitude:37.5000 + s*0.00001, longitude:127.0000 + s*0.00001,
+      accuracy:10, speed:40, battery:80, address:'', provider:'gps', activity_type:'IN_VEHICLE', staytime:5 };
+  });
+  const pf = join(dir, 'ph.txt'); writeFileSync(pf, JSON.stringify({ success:true, data:[rows], errors:[] }));
+  await page.locator('#move-file-input').setInputFiles([pf]);
+  await page.waitForTimeout(300);
+
+  // 차량 GPS CSV: 같은 시각·같은 좌표(50m 이내) → 대조 시 "이 차량 주행"
+  const HEAD = 'packet_time,gps_time,source_file,pdop,hdop,vdop,latitude_nmea,longitude_nmea,latitude_deg,longitude_deg,altitude_m,speed_kmh';
+  const carRows = [0, 30, 60].map((s) => {
+    const ss = String(s % 60).padStart(2, '0'); const mm = Math.floor(s / 60);
+    return `2026-09-12 09:0${mm}:${ss}.000,—,00000001.jdr,1.1,0.8,0.9,0,0,${(37.5000 + s*0.00001).toFixed(6)},${(127.0000 + s*0.00001).toFixed(6)},90,41`;
+  });
+  const cf = join(dir, 'car.csv'); writeFileSync(cf, [HEAD, ...carRows].join('\n'));
+  await page.locator('#car-csv-input').setInputFiles([cf]);
+  await page.waitForTimeout(300);
+
+  // 그날을 열면 저장된 차량 GPS로 자동 대조 → 막대에 "이 차량 주행"
+  await page.locator('[data-day="2026-09-12"]').click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('.track-bars')).toContainText('이 차량 주행');
+});
+
