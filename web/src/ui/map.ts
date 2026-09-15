@@ -191,7 +191,9 @@ export class LeafletBackend implements MapBackend {
     stays.forEach((s, i) => {
       const range = `${fmtClock(s.fromMs)}~${fmtClock(s.toMs)}`;
       const dur = fmtDur(s.durationMs);
-      const popup = `<strong>머문 곳 ${i + 1}</strong><br>${range} · ${dur}` +
+      const popup = `<strong>머문 곳 ${i + 1}</strong>` +
+        (s.place ? `<br><strong>${escapeHtmlText(s.place)}</strong>` : '') +
+        `<br>${range} · ${dur}` +
         (s.addr ? `<br>${escapeHtmlText(s.addr)}` : '');
       // 번호 배지 핀 — 회색 원 대신 시선을 끄는 주황 배지에 순번을 박는다
       const icon = L.divIcon({

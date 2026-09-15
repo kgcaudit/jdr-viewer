@@ -38,6 +38,7 @@ function staysBlock(stays: Stay[]): string {
       <button type="button" class="stay-rank" data-stay-focus="${i}" title="지도에서 이 지점 보기" aria-label="지도에서 ${num(i + 1)}번 지점 보기">${num(i + 1)}</button>
       <div class="stay-body">
         <div class="stay-dur">${escapeHtml(formatDurationKo(s.durationMs / 1000))}</div>
+        <div class="stay-place" data-stay-place="${i}"${s.place ? '' : ' hidden'}>${s.place ? escapeHtml(s.place) : ''}</div>
         <div class="stay-meta tnum">${escapeHtml(clock(s.fromMs))} ~ ${escapeHtml(clock(s.toMs))}</div>
         <div class="stay-where" data-stay-where="${i}">${s.addr ? escapeHtml(s.addr) : `<span class="muted">주소 조회 중…</span>`}</div>
       </div>

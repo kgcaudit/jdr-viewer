@@ -288,6 +288,7 @@ body {
 .stay-body { min-width:0; flex:1 1 auto; }
 .stay-dur { font-size:15px; font-weight:800; color:var(--text); line-height:1.2; }
 .stay-meta { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:1px; }
+.stay-place { font-size:14px; font-weight:700; color:var(--stay); margin-top:1px; word-break:break-all; }
 .stay-where { font-size:13px; color:var(--text); margin-top:2px; word-break:break-all; }
 .stay-note { margin:8px 2px 0; }
 

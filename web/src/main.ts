@@ -1816,21 +1816,25 @@ async function fillStayAddresses(stays: Stay[], dayKey: string, hhmm: (ms: numbe
   let changed = false;
   for (let i = 0; i < stays.length; i++) {
     const s = stays[i];
-    const cell = document.querySelector<HTMLElement>(`#move-detail [data-stay-where="${i}"]`);
-    if (s.addr) { if (cell) cell.textContent = s.addr; continue; }
-    const addr = await reverseGeocode(s.lat, s.lon);
+    // 주소가 이미 있어도(도와줘 제공) 대표 상호명을 얻기 위해 한 번 조회한다(캐시됨)
+    const info = await reverseGeocode(s.lat, s.lon);
     // 조회 중 사용자가 목록으로 나갔거나 다른 날짜를 열었으면 중단
     if (!moveDetailOpen || moveCurrentDayKey !== dayKey) return;
-    const cur = document.querySelector<HTMLElement>(`#move-detail [data-stay-where="${i}"]`);
-    if (addr) {
-      s.addr = addr;
-      if (cur) cur.textContent = addr;
+    const whereEl = document.querySelector<HTMLElement>(`#move-detail [data-stay-where="${i}"]`);
+    const placeEl = document.querySelector<HTMLElement>(`#move-detail [data-stay-place="${i}"]`);
+    const addr = s.addr || info.addr;
+    if (addr && addr !== s.addr) { s.addr = addr; changed = true; }
+    if (whereEl) {
+      if (addr) whereEl.textContent = addr;
+      else whereEl.innerHTML = `<span class="muted">지점 ${num(i + 1)}</span>`;
+    }
+    if (info.place && info.place !== s.place) {
+      s.place = info.place;
+      if (placeEl) { placeEl.textContent = info.place; placeEl.hidden = false; }
       changed = true;
-    } else if (cur) {
-      cur.innerHTML = `<span class="muted">지점 ${i + 1}</span>`; // 실패 시 자리 표시
     }
   }
-  // 주소가 채워졌으면 지도 팝업에도 반영되게 표식을 다시 그린다
+  // 주소·상호명이 채워졌으면 지도 팝업에도 반영되게 표식을 다시 그린다
   if (changed && moveMap && moveDetailOpen && moveCurrentDayKey === dayKey) {
     moveMap.showStays(stays, hhmm, (ms) => formatDurationKo(ms / 1000));
   }

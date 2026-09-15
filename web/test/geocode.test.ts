@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatNominatim, geoKey } from '../src/core/geocode';
+import { formatNominatim, placeNominatim, geoKey } from '../src/core/geocode';
 
 describe('리버스 지오코딩 포맷', () => {
   it('행정구역을 큰→작은 순으로 한글 주소를 만든다', () => {
@@ -25,6 +25,14 @@ describe('리버스 지오코딩 포맷', () => {
 
   it('빈 응답이면 빈 문자열', () => {
     expect(formatNominatim({})).toBe('');
+  });
+
+  it('상호명은 name 을 우선, 없으면 시설/상점 필드에서 뽑는다', () => {
+    expect(placeNominatim({ name: '진천군청', address: { amenity: '군청' } })).toBe('진천군청');
+    expect(placeNominatim({ address: { shop: '가산리마트' } })).toBe('가산리마트');
+    // 번지 등 숫자로 시작하는 값은 상호명이 아니다
+    expect(placeNominatim({ address: { building: '251' } })).toBe('');
+    expect(placeNominatim({})).toBe('');
   });
 
   it('좌표 캐시 키는 소수 4자리로 묶는다(≈11m)', () => {

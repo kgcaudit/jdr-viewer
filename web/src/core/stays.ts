@@ -35,6 +35,8 @@ export interface Stay {
   lon: number;
   /** 주소 라벨 (있으면) */
   addr: string;
+  /** 대표 상호명/건물명 (리버스 지오코딩으로 나중에 채움) */
+  place?: string;
   /** 묶인 점 개수 */
   count: number;
 }

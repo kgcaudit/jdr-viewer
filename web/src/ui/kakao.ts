@@ -15,6 +15,7 @@
  */
 import type { GpsFix } from '../core/types';
 import type { Stay } from '../core/stays';
+import { EMPTY_GEO, type GeoInfo } from '../core/geocode';
 import type { MapBackend } from './map-backend';
 
 // ── SDK 로더 ────────────────────────────────────────
@@ -133,7 +134,7 @@ interface KakaoMaps {
   };
 }
 interface KAddr {
-  road_address?: { address_name?: string } | null;
+  road_address?: { address_name?: string; building_name?: string } | null;
   address?: { address_name?: string } | null;
 }
 declare global {
@@ -148,24 +149,27 @@ export function kakaoServicesReady(): boolean {
 }
 
 /**
- * 카카오로 좌표 → 주소 (도로명 우선, 없으면 지번). 등록 도메인에서만 동작.
- * 실패하면 빈 문자열. SDK services 가 브라우저 CORS 없이 처리한다.
+ * 카카오로 좌표 → {주소(도로명 우선, 없으면 지번), 상호명/건물명}. 등록 도메인에서만
+ * 동작. 실패하면 빈 값. SDK services 가 브라우저 CORS 없이 처리한다.
  */
-export function kakaoReverseGeocode(lat: number, lon: number): Promise<string> {
+export function kakaoReverseGeocode(lat: number, lon: number): Promise<GeoInfo> {
   return new Promise((resolve) => {
     try {
       const M = km();
-      if (!M.services) { resolve(''); return; }
+      if (!M.services) { resolve(EMPTY_GEO); return; }
       const geocoder = new M.services.Geocoder();
       const ok = M.services.Status?.OK ?? 'OK';
-      const timer = setTimeout(() => resolve(''), 8000);
+      const timer = setTimeout(() => resolve(EMPTY_GEO), 8000);
       geocoder.coord2Address(lon, lat, (result, status) => {
         clearTimeout(timer);
-        if (status !== ok || !result || result.length === 0) { resolve(''); return; }
+        if (status !== ok || !result || result.length === 0) { resolve(EMPTY_GEO); return; }
         const r = result[0];
-        resolve(r.road_address?.address_name || r.address?.address_name || '');
+        resolve({
+          addr: r.road_address?.address_name || r.address?.address_name || '',
+          place: r.road_address?.building_name || '',
+        });
       });
-    } catch { resolve(''); }
+    } catch { resolve(EMPTY_GEO); }
   });
 }
 
