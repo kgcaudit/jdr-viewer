@@ -187,10 +187,14 @@ export class LeafletBackend implements MapBackend {
       const dur = fmtDur(s.durationMs);
       const popup = `<strong>머문 곳 ${i + 1}</strong><br>${range} · ${dur}` +
         (s.addr ? `<br>${escapeHtmlText(s.addr)}` : '');
-      L.circleMarker([s.lat, s.lon], {
-        radius: 9, color: '#fff', weight: 3, fillColor: '#dd6b20', fillOpacity: 0.95,
-      })
-        .bindTooltip(dur, { permanent: true, direction: 'top', className: 'map-stay-label' })
+      // 번호 배지 핀 — 회색 원 대신 시선을 끄는 주황 배지에 순번을 박는다
+      const icon = L.divIcon({
+        className: 'stay-marker',
+        html: `<span class="stay-pin">${i + 1}</span>`,
+        iconSize: [30, 30], iconAnchor: [15, 15],
+      });
+      L.marker([s.lat, s.lon], { icon, title: `머문 곳 ${i + 1} · ${dur}`, zIndexOffset: 1000 })
+        .bindTooltip(dur, { permanent: true, direction: 'bottom', offset: [0, 12], className: 'map-stay-label' })
         .bindPopup(popup)
         .addTo(layer);
     });

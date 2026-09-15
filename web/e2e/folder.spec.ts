@@ -1690,11 +1690,14 @@ test('이동기록 상세 — 한 자리에 머물면 머문 곳과 머문 시�
   // 머문 곳 블록에 1곳·20분 체류가 뜨고, 대표 주소(집)를 담는다
   const stay = page.locator('.stay-block');
   await expect(stay).toBeVisible();
-  await expect(stay.locator('.stay-h')).toContainText('1곳');
-  await expect(stay.locator('.stay-table tbody tr')).toHaveCount(1);
-  await expect(stay.locator('.stay-table tbody tr').first()).toContainText('20분');
-  await expect(stay.locator('.stay-table tbody tr').first()).toContainText('집');
-  // 지도에도 머문 시간 라벨이 뜬다 (OSM 백엔드)
+  await expect(stay.locator('.stay-sum')).toContainText('1곳');
+  await expect(stay.locator('.stay-item')).toHaveCount(1);
+  await expect(stay.locator('.stay-item').first()).toContainText('20분');
+  await expect(stay.locator('.stay-item').first()).toContainText('집');
+  // 순번 배지(1)가 카드에 뜬다
+  await expect(stay.locator('.stay-rank').first()).toHaveText('1');
+  // 지도에도 번호 배지 핀 + 머문 시간 라벨이 뜬다 (OSM 백엔드)
+  await expect(page.locator('.stay-pin').first()).toBeVisible();
   await expect(page.locator('.map-stay-label').first()).toBeVisible();
 });
 

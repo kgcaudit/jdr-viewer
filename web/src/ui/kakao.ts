@@ -261,10 +261,10 @@ export class KakaoBackend implements MapBackend {
 
   showStays(stays: Stay[], fmtClock: (ms: number) => string, fmtDur: (ms: number) => string): void {
     if (!this.map) return;
-    for (const s of stays) {
+    stays.forEach((s, i) => {
       const cap = `${fmtClock(s.fromMs)} · ${fmtDur(s.durationMs)}`;
-      const html = `<div class="kk-stay-dot"></div><div class="kk-stay-cap">${esc(cap)}</div>`;
+      const html = `<div class="kk-stay-dot">${i + 1}</div><div class="kk-stay-cap">${esc(cap)}</div>`;
       this.extras.push(this.overlay({ lat: s.lat, lon: s.lon }, html, 'kk-stay', true));
-    }
+    });
   }
 }

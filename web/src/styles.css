@@ -11,6 +11,10 @@
   --danger: #b3261e;
   --ok: #17703f;
   --warn: #8a5a00;
+  /* 머문 곳(체류) 강조색 — 지도 표식과 목록 카드가 같은 주황을 쓴다 */
+  --stay: #dd6b20;
+  --stay-tint: #fdf1e7;
+  --stay-halo: rgba(221, 107, 32, 0.18);
   --radius: 10px;
   --shadow: 0 1px 2px rgba(16, 20, 28, 0.06), 0 4px 12px rgba(16, 20, 28, 0.05);
 
@@ -68,6 +72,9 @@
     --danger: #f2b8b5;
     --ok: #7fd6a2;
     --warn: #e8c06a;
+    --stay: #f0873c;
+    --stay-tint: #2a211a;
+    --stay-halo: rgba(240, 135, 60, 0.22);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
 }
@@ -211,8 +218,17 @@ body {
   border-radius: 6px; padding:1px 6px; font-size: 11px; font-weight: 600; box-shadow: none;
 }
 .map-stay-label {
-  background: #dd6b20; color: #fff; border: 1px solid #fff;
-  border-radius: 6px; padding:1px 7px; font-size: 11px; font-weight: 700; box-shadow: none;
+  background: var(--stay); color: #fff; border: 1px solid #fff;
+  border-radius: 999px; padding:1px 8px; font-size: 11px; font-weight: 800; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+}
+.map-stay-label::before { display: none; } /* 화살표 꼬리 숨김 — 배지 아래 알약만 */
+/* 번호 배지 핀 — 지도에서 머문 곳이 대번에 보이게 */
+.leaflet-div-icon.stay-marker { background: transparent; border: 0; }
+.stay-pin {
+  display:flex; align-items:center; justify-content:center;
+  width:30px; height:30px; border-radius:50%;
+  background:var(--stay); color:#fff; font-weight:800; font-size:14px;
+  border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.4), 0 0 0 5px var(--stay-halo);
 }
 
 /* ── 카카오 지도 오버레이 (등록 도메인에서만 뜬다) ── */
@@ -226,19 +242,48 @@ body {
 }
 .kk-stay { text-align:center; pointer-events:none; }
 .kk-stay-dot {
-  width:16px; height:16px; margin:0 auto; border-radius:50%;
-  background:#dd6b20; border:3px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.2);
+  display:flex; align-items:center; justify-content:center;
+  width:26px; height:26px; margin:0 auto; border-radius:50%;
+  background:var(--stay); color:#fff; font-weight:800; font-size:13px;
+  border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.4), 0 0 0 5px var(--stay-halo);
 }
 .kk-stay-cap {
-  margin-top:2px; background:#dd6b20; color:#fff; border-radius:6px;
-  padding:1px 6px; font-size:11px; font-weight:700; white-space:nowrap;
+  margin-top:3px; background:var(--stay); color:#fff; border-radius:999px;
+  padding:1px 8px; font-size:11px; font-weight:800; white-space:nowrap;
 }
 
-/* ── 머문 곳(체류) ───────────────────── */
-.stay-block { margin:12px 0 4px; }
-.stay-h { margin:0 0 6px; font-size: 14px; font-weight: 700; }
-.stay-h .muted { font-weight: 500; }
-.stay-table td:last-child { white-space: normal; word-break: break-all; }
+/* ── 머문 곳(체류) — 도드라지는 카드 ─────
+ * 감사에서 "어디 얼마나 머물렀나"가 가장 중요한 정보라, 회색 표에 묻히지 않게
+ * 주황 강조 패널 + 순번 배지 + 큰 머문 시간으로 시선을 끈다. */
+.stay-block {
+  margin:14px 0 6px; padding:12px 12px 10px;
+  border:1px solid var(--border); border-left:4px solid var(--stay);
+  border-radius: var(--radius); background: var(--stay-tint);
+}
+.stay-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.stay-ic { font-size:16px; line-height:1; }
+.stay-h { margin:0; font-size:15px; font-weight:800; letter-spacing:-0.01em; }
+.stay-sum {
+  margin-left:auto; background:var(--stay); color:#fff;
+  padding:3px 11px; border-radius:999px; font-size:12px; font-weight:700;
+  white-space:nowrap; box-shadow:0 1px 2px rgba(0,0,0,.12);
+}
+.stay-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.stay-item {
+  display:flex; align-items:center; gap:12px;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:9px 12px;
+}
+.stay-rank {
+  flex:0 0 auto; width:26px; height:26px; border-radius:50%;
+  background:var(--stay); color:#fff; font-weight:800; font-size:13px;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 0 0 4px var(--stay-halo);
+}
+.stay-body { min-width:0; flex:1 1 auto; }
+.stay-dur { font-size:15px; font-weight:800; color:var(--text); line-height:1.2; }
+.stay-meta { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:1px; }
+.stay-where { font-size:13px; color:var(--text); margin-top:2px; word-break:break-all; }
 
 /* ── 로딩 ───────────────────────────── */
 .loading { max-width: 480px; margin:12vh auto; text-align: center; }

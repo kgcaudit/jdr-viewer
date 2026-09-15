@@ -24,27 +24,32 @@ export const MOVE_CLASS_COLOR: Record<TrackClass, string> = {
 
 const clock = (ms: number): string => formatRecordedTime(ms, false).slice(11, 16);
 
-/** 체류(머문 곳) 목록. 시각범위 · 머문 시간 · 장소. */
+/** 체류(머문 곳) — 감사에서 가장 눈에 띄어야 하는 정보라 카드로 도드라지게 그린다. */
 function staysBlock(stays: Stay[]): string {
   if (stays.length === 0) {
-    return `<div class="stay-block">
-      <h4 class="stay-h">머문 곳</h4>
+    return `<section class="stay-block stay-empty">
+      <div class="stay-head"><span class="stay-ic" aria-hidden="true">📍</span>
+        <h4 class="stay-h">머문 곳</h4></div>
       <p class="muted small" style="margin:0">한 자리에 5분 이상 머문 구간이 없습니다.</p>
-    </div>`;
+    </section>`;
   }
   const sum = staysSummary(stays);
-  const rows = stays.map((s, i) => `<tr>
-      <td class="tnum">${escapeHtml(clock(s.fromMs))}~${escapeHtml(clock(s.toMs))}</td>
-      <td class="tnum">${escapeHtml(formatDurationKo(s.durationMs / 1000))}</td>
-      <td>${s.addr ? escapeHtml(s.addr) : `<span class="muted">지점 ${num(i + 1)}</span>`}</td>
-    </tr>`).join('');
-  return `<div class="stay-block">
-    <h4 class="stay-h">머문 곳 <span class="muted small">${num(sum.places)}곳 · 총 ${escapeHtml(formatDurationKo(sum.totalMs / 1000))}</span></h4>
-    <div class="track-table-wrap"><table class="track-table stay-table">
-      <thead><tr><th>시각</th><th>머문 시간</th><th>장소</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>
-  </div>`;
+  const items = stays.map((s, i) => `<li class="stay-item">
+      <span class="stay-rank">${num(i + 1)}</span>
+      <div class="stay-body">
+        <div class="stay-dur">${escapeHtml(formatDurationKo(s.durationMs / 1000))}</div>
+        <div class="stay-meta tnum">${escapeHtml(clock(s.fromMs))} ~ ${escapeHtml(clock(s.toMs))}</div>
+        <div class="stay-where">${s.addr ? escapeHtml(s.addr) : `<span class="muted">지점 ${num(i + 1)}</span>`}</div>
+      </div>
+    </li>`).join('');
+  return `<section class="stay-block">
+    <div class="stay-head">
+      <span class="stay-ic" aria-hidden="true">📍</span>
+      <h4 class="stay-h">머문 곳</h4>
+      <span class="stay-sum">${num(sum.places)}곳 · 총 ${escapeHtml(formatDurationKo(sum.totalMs / 1000))}</span>
+    </div>
+    <ol class="stay-list">${items}</ol>
+  </section>`;
 }
 
 export interface MoveListHandlers {
