@@ -1671,12 +1671,9 @@ test('이동기록 상세 — 한 자리에 머물면 머문 곳과 머문 시�
   await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
   await page.locator('#btn-move-enter').click();
   const rows: any[] = [];
-  // 08:00~08:20 한 자리에서 staytime 이 누적(초)된다 → 20분 체류 하나
-  for (let i = 0; i <= 20; i++) {
-    const mm = String(i).padStart(2, '0');
-    rows.push({ timestamp:`2026-09-12 08:${mm}:00`, latitude:37.5000 + (i%2)*0.00005, longitude:127.0000 + (i%2)*0.00005,
-      accuracy:10, speed:0, battery:80, address:'집', provider:'gps', activity_type:'STILL', staytime: i*60 });
-  }
+  // 08:00 도착, staytime 1200초(20분) → 08:00~08:20 체류 하나 (도와줘: 체류는 점 하나)
+  rows.push({ timestamp:'2026-09-12 08:00:00', latitude:37.5000, longitude:127.0000,
+    accuracy:10, speed:0, battery:80, address:'집', provider:'gps', activity_type:'STILL', staytime:1200 });
   // 08:30~08:32 멀리 이동 (staytime 몇 초 → 체류 아님)
   rows.push({ timestamp:'2026-09-12 08:30:00', latitude:37.55, longitude:127.05, accuracy:10, speed:30, battery:80, address:'', provider:'gps', activity_type:'IN_VEHICLE', staytime:6 });
   rows.push({ timestamp:'2026-09-12 08:32:00', latitude:37.60, longitude:127.10, accuracy:10, speed:30, battery:80, address:'', provider:'gps', activity_type:'IN_VEHICLE', staytime:7 });

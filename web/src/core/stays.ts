@@ -3,14 +3,16 @@
  *
  * **원본 staytime 이 근거다.** 도와줘 각 점에는 그 지점에 머문 시간(staytime, 초)이
  * 붙어 온다 — 우리가 위치 군집이나 속도로 "머문 것 같다"를 추정할 필요가 없다.
- * staytime 은 머무는 동안 계속 누적되므로, 한 지점의 마지막(=최대) staytime 이 그
- * 체류의 전체 시간이고, 도착 시각 = 그 점의 timestamp - staytime 이다.
+ *
+ * 방향: **timestamp 가 시작(도착), 종료 = timestamp + staytime.** 실데이터로 확인 —
+ * `17:46:33, staytime 13082(3h38m)` 다음 기록이 `21:24`(이동 재개)라, 17:46 도착해
+ * 21:24 에 떠났다(17:46 + 3h38m = 21:24). 한 체류는 보통 큰 staytime 을 가진 점
+ * 하나로 기록되고, 이동 중인 점은 staytime 이 몇 초라 자동으로 걸러진다.
  *
  * 그래서:
  *   - staytime 이 최소 기준(기본 5분) 이상인 점만 체류 후보로 본다.
- *   - 반경 안에서 이어지는 후보들은 같은 체류로 묶고, 그중 staytime 이 가장 큰 점을
- *     대표로 삼는다(누적 최댓값 = 전체 머문 시간).
- * 이동 중인 점은 staytime 이 몇 초라 자동으로 걸러진다.
+ *   - 반경 안에서 이어지는 후보들은 같은 체류로 묶어 시각 범위를 합친다
+ *     (시작 = 가장 이른 timestamp, 종료 = 가장 늦은 timestamp+staytime).
  */
 import { haversineM } from './phone-track';
 
@@ -53,8 +55,7 @@ export const DEFAULT_STAY: StayOptions = {
  * 시각 순 점들에서 체류를 도출한다 (원본 staytime 기준).
  *
  * staytime 이 기준 이상인 점만 후보로 두고, 반경 안에서 이어지는 후보를 한 체류로
- * 묶어 그중 staytime 최대 점을 대표로 삼는다. 대표의 도착 시각은 timestamp에서
- * staytime 을 뺀 값이다.
+ * 묶는다. 시작 = 가장 이른 timestamp, 종료 = 가장 늦은 (timestamp + staytime).
  */
 export function deriveStays(points: StayInput[], options: Partial<StayOptions> = {}): Stay[] {
   const opt = { ...DEFAULT_STAY, ...options };
@@ -64,16 +65,20 @@ export function deriveStays(points: StayInput[], options: Partial<StayOptions> =
 
   const flush = (): void => {
     if (group.length === 0) return;
-    // 누적 staytime 이 최대인 점이 그 체류의 전체 머문 시간을 담는다
+    // 대표 좌표·주소는 staytime 최대 점(가장 오래 머문 근거)에서 가져온다
     let rep = group[0];
-    for (const p of group) if (p.stayMs > rep.stayMs) rep = p;
+    let fromMs = group[0].t;
+    let toMs = group[0].t + group[0].stayMs;
+    for (const p of group) {
+      if (p.stayMs > rep.stayMs) rep = p;
+      if (p.t < fromMs) fromMs = p.t;              // 시작 = 가장 이른 도착
+      if (p.t + p.stayMs > toMs) toMs = p.t + p.stayMs; // 종료 = 가장 늦은 (도착+체류)
+    }
     // 대표 주소: 대표 점 우선, 없으면 묶음 중 처음 나오는 주소
     let addr = rep.addr ?? '';
     if (!addr) for (const p of group) { if (p.addr) { addr = p.addr; break; } }
     stays.push({
-      fromMs: rep.t - rep.stayMs,
-      toMs: rep.t,
-      durationMs: rep.stayMs,
+      fromMs, toMs, durationMs: toMs - fromMs,
       lat: rep.lat, lon: rep.lon,
       addr, count: group.length,
     });

@@ -10,21 +10,22 @@ function pt(atMin: number, lat: number, lon: number, stayMs: number, addr?: stri
 }
 
 describe('체류 도출 (원본 staytime 기준)', () => {
-  it('실제 예: staytime 13082초 한 점이 3시간 38분 체류가 된다', () => {
-    // 도와줘 발췌: 17:46:33 에 staytime 13082 → 도착은 그만큼 앞
+  it('실제 예: 17:46 에 staytime 13082초면 17:46~21:24 체류', () => {
+    // 도와줘 발췌: 17:46:33 도착, 3h38m 머물러 21:24 에 떠남(다음 기록이 21:24 이동)
     const rec = Date.UTC(2026, 8, 12, 17, 46, 33);
     const stays = deriveStays([{ t: rec, lat: 36.8738267, lon: 127.4712511, stayMs: 13082 * 1000 }]);
     expect(stays).toHaveLength(1);
+    expect(stays[0].fromMs).toBe(rec);               // 시작 = timestamp
+    expect(stays[0].toMs).toBe(rec + 13082 * 1000);  // 종료 = timestamp + staytime
     expect(stays[0].durationMs).toBe(13082 * 1000);
-    expect(stays[0].toMs).toBe(rec);
-    expect(stays[0].fromMs).toBe(rec - 13082 * 1000); // 도착 = timestamp - staytime
   });
 
-  it('staytime 이 기준 이상이면 점 하나로도 체류', () => {
-    const stays = deriveStays([pt(20, 37.5, 127.0, min(20))]);
+  it('staytime 이 기준 이상이면 점 하나로도 체류 (시작=timestamp)', () => {
+    const stays = deriveStays([pt(0, 37.5, 127.0, min(20))]);
     expect(stays).toHaveLength(1);
+    expect(stays[0].fromMs).toBe(T0);          // 08:00 도착
+    expect(stays[0].toMs).toBe(T0 + min(20));  // 08:20 떠남
     expect(stays[0].durationMs).toBe(min(20));
-    expect(stays[0].fromMs).toBe(T0); // 08:20 - 20분 = 08:00
   });
 
   it('staytime 이 짧으면(기본 5분 미만) 체류가 아니다', () => {
@@ -38,15 +39,16 @@ describe('체류 도출 (원본 staytime 기준)', () => {
     expect(deriveStays(pts)).toHaveLength(0);
   });
 
-  it('한 자리 여러 점이면 누적 최대 staytime 이 전체 머문 시간', () => {
-    // 같은 곳에서 staytime 이 60→600→1200초로 누적
+  it('반경 안 후보가 겹치면 한 체류로 합쳐 범위를 잇는다', () => {
+    // 08:00 도착·10분 + 08:05 도착·10분 (같은 자리) → 08:00~08:15
     const stays = deriveStays([
-      pt(1, 37.5, 127.0, 60_000),
-      pt(10, 37.5001, 127.0001, 600_000),
-      pt(20, 37.5, 127.0, 1_200_000),
+      pt(0, 37.5, 127.0, min(10)),
+      pt(5, 37.5001, 127.0001, min(10)),
     ]);
     expect(stays).toHaveLength(1);
-    expect(stays[0].durationMs).toBe(1_200_000); // 20분
+    expect(stays[0].fromMs).toBe(T0);           // 가장 이른 도착
+    expect(stays[0].toMs).toBe(T0 + min(15));   // 가장 늦은 (도착+체류) = 08:05+10
+    expect(stays[0].durationMs).toBe(min(15));
   });
 
   it('머물다 이동하다 다시 머물면 체류 둘', () => {
