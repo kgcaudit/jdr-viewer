@@ -37,21 +37,20 @@
     <!-- 시작화면 — 두 공간으로 나뉜다: 블랙박스 / 이동기록 -->
     <main id="view-empty" class="view">
       <div class="home-cards">
-        <div id="dropzone" class="dropzone home-card">
+        <div id="dropzone" class="home-card blackbox-card">
           <div class="dropzone-inner">
             <p class="home-kicker">블랙박스</p>
-            <p class="dropzone-title">JDR 파일·폴더 열기</p>
-            <p class="dropzone-sub">영상·GPS·센서를 시각 순으로 재생합니다.
-              <button id="btn-open-2" class="linklike" type="button">파일 선택</button>
-              <span class="muted"> · </span>
-              <button id="btn-open-folder-2" class="linklike" type="button">폴더 선택</button>
-            </p>
+            <p class="dropzone-title">아이로드(jdr) 운행기록</p>
+            <p class="dropzone-sub">영상·GPS·센서를 시각 순으로 재생합니다.</p>
             <ul class="dropzone-notes">
               <li>파일은 <strong>서버로 전송되지 않습니다.</strong> 전부 브라우저 안에서 처리됩니다.</li>
               <li><strong>폴더를 열면</strong> 파일들을 기록 시각 순으로 이어 하나의 타임라인으로 재생합니다.</li>
               <li>파일을 통째로 읽지 않습니다. 수백 개도 헤더만 훑어 1초 안에 목록이 뜹니다.</li>
               <li id="codec-note" class="muted"></li>
             </ul>
+            <button id="btn-open-folder-2" class="btn btn-primary" type="button">블랙박스 열기</button>
+            <p class="home-alt">낱개 파일만 볼 때 —
+              <button id="btn-open-2" class="linklike" type="button">단일 파일 열기</button></p>
           </div>
         </div>
         <div class="home-card move-card">

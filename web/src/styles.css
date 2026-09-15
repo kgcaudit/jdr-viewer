@@ -185,14 +185,16 @@ body {
   color: var(--accent); margin:0 0 8px;
 }
 .move-card .dropzone-notes { max-width: none; }
-.dropzone {
-  border: 2px dashed var(--border); transition: border-color .15s, background .15s;
-}
-.dropzone.is-over { border-color: var(--accent); background: var(--surface-2); }
+/* 블랙박스 카드도 이동기록 카드와 같은 상자 모양(실선 + 주 버튼). 끌어다 놓기는
+   그대로 두되(#dropzone), 강조 테두리만 살린다. */
+.blackbox-card { transition: border-color .15s, background .15s; }
+.blackbox-card.is-over { border-color: var(--accent); background: var(--surface-2); }
 .dropzone-title { font-size: 18px; font-weight: 600; margin:0 0 6px; }
 .dropzone-sub { margin:0 0 20px; color: var(--muted); }
-.dropzone-notes { text-align: left; max-width: 460px; margin:0 auto; padding-left:20px; color: var(--muted); font-size: 13px; }
+.dropzone-notes { text-align: left; max-width: 460px; margin:0 auto 18px; padding-left:20px; color: var(--muted); font-size: 13px; }
 .dropzone-notes li { margin:6px 0; }
+.home-card .btn-primary { min-width: 168px; }
+.home-alt { margin:12px 0 0; font-size: 13px; color: var(--muted); }
 
 /* 이동기록 공간 */
 .move-wrap { max-width: 760px; margin:0 auto; padding:var(--s-4); }
