@@ -1575,3 +1575,52 @@ test('동선 탭 — 휴대폰 위치기록을 올려 차량 GPS와 대조한다
   await page.locator('#track-clear').click();
   await expect(page.locator('.track-head')).toHaveCount(0);
 });
+
+test('이동기록 공간 — 다중 업로드·날짜별 병합·상세', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  // 시작화면에 두 공간이 보인다
+  await expect(page.locator('.home-card')).toHaveCount(2);
+  await page.locator('#btn-move-enter').click();
+  await expect(page.locator('#view-move')).toBeVisible();
+
+  // 같은 날의 오전 응답 (2,000건 상한으로 잘린 앞부분이라 치자)
+  const mk = (rows: {t:string; la:number; lo:number; act:string}[]) =>
+    JSON.stringify({ success:true, data:[rows.map((r)=>({ timestamp:r.t, latitude:r.la, longitude:r.lo, accuracy:10, speed:0, battery:80, address:'', provider:'gps', activity_type:r.act, staytime:0 }))], errors:[] });
+  const morning = join(dir, 'm1.txt');
+  writeFileSync(morning, mk([
+    { t:'2026-09-12 08:00:00', la:37.50, lo:127.00, act:'WALKING' },
+    { t:'2026-09-12 08:01:00', la:37.501, lo:127.001, act:'WALKING' },
+  ]));
+  const afternoon = join(dir, 'm2.txt');
+  writeFileSync(afternoon, mk([
+    { t:'2026-09-12 20:00:00', la:37.52, lo:127.02, act:'STILL' },
+    { t:'2026-09-13 09:00:00', la:37.53, lo:127.03, act:'WALKING' },
+  ]));
+
+  // 두 파일을 한 번에 올린다
+  await page.locator('#move-upload').click();
+  await page.locator('#move-file-input').setInputFiles([morning, afternoon]);
+  await page.waitForTimeout(300);
+
+  // 9/12(4점 중 3점 = 오전2 + 오후1)와 9/13(1점)이 목록에 뜬다
+  await expect(page.locator('.move-day')).toHaveCount(2);
+  await expect(page.locator('[data-day="2026-09-12"]')).toContainText('3점');
+
+  // 9/12를 열면 상세(지도 + 요약)가 뜬다
+  await page.locator('[data-day="2026-09-12"]').click();
+  await expect(page.locator('#move-detail')).toBeVisible();
+  await expect(page.locator('#move-map')).toBeVisible();
+  await expect(page.locator('.track-bars')).toBeVisible();
+
+  // 목록으로 돌아온다
+  await page.locator('#move-day-back').click();
+  await expect(page.locator('.move-day')).toHaveCount(2);
+
+  // 같은 9/12에 새 시각을 더 올리면 병합되어 점이 는다 (4점)
+  const more = join(dir, 'm3.txt');
+  writeFileSync(more, mk([{ t:'2026-09-12 12:00:00', la:37.51, lo:127.01, act:'WALKING' }]));
+  await page.locator('#move-upload').click();
+  await page.locator('#move-file-input').setInputFiles([more]);
+  await page.waitForTimeout(300);
+  await expect(page.locator('[data-day="2026-09-12"]')).toContainText('4점');
+});

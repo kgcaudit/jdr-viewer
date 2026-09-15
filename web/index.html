@@ -32,23 +32,41 @@
     <input id="file-input" type="file" accept=".jdr,application/octet-stream" hidden />
     <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
     <input id="track-file-input" type="file" accept=".txt,.json,application/json,text/plain" hidden />
+    <input id="move-file-input" type="file" accept=".txt,.json,application/json,text/plain" multiple hidden />
+    <input id="move-import-input" type="file" accept=".json,application/json" hidden />
 
-    <!-- 파일 선택 전 -->
+    <!-- 시작화면 — 두 공간으로 나뉜다: 블랙박스 / 이동기록 -->
     <main id="view-empty" class="view">
-      <div id="dropzone" class="dropzone">
-        <div class="dropzone-inner">
-          <p class="dropzone-title">JDR 파일 또는 폴더를 여기에 끌어다 놓으세요</p>
-          <p class="dropzone-sub">
-            <button id="btn-open-2" class="linklike" type="button">파일 선택</button>
-            <span class="muted"> · </span>
-            <button id="btn-open-folder-2" class="linklike" type="button">폴더 선택</button>
-          </p>
-          <ul class="dropzone-notes">
-            <li>파일은 <strong>서버로 전송되지 않습니다.</strong> 전부 브라우저 안에서 처리됩니다.</li>
-            <li><strong>폴더를 열면</strong> 파일들을 기록 시각 순으로 이어 붙여 하나의 타임라인으로 재생합니다.</li>
-            <li>파일을 통째로 읽지 않습니다. 수백 개 파일도 헤더만 훑어 1초 안에 목록이 뜹니다.</li>
-            <li id="codec-note" class="muted"></li>
-          </ul>
+      <div class="home-cards">
+        <div id="dropzone" class="dropzone home-card">
+          <div class="dropzone-inner">
+            <p class="home-kicker">블랙박스</p>
+            <p class="dropzone-title">JDR 파일·폴더 열기</p>
+            <p class="dropzone-sub">영상·GPS·센서를 시각 순으로 재생합니다.
+              <button id="btn-open-2" class="linklike" type="button">파일 선택</button>
+              <span class="muted"> · </span>
+              <button id="btn-open-folder-2" class="linklike" type="button">폴더 선택</button>
+            </p>
+            <ul class="dropzone-notes">
+              <li>파일은 <strong>서버로 전송되지 않습니다.</strong> 전부 브라우저 안에서 처리됩니다.</li>
+              <li><strong>폴더를 열면</strong> 파일들을 기록 시각 순으로 이어 하나의 타임라인으로 재생합니다.</li>
+              <li>파일을 통째로 읽지 않습니다. 수백 개도 헤더만 훑어 1초 안에 목록이 뜹니다.</li>
+              <li id="codec-note" class="muted"></li>
+            </ul>
+          </div>
+        </div>
+        <div class="home-card move-card">
+          <div class="dropzone-inner">
+            <p class="home-kicker">이동기록</p>
+            <p class="dropzone-title">휴대폰 GPS 관리·대조</p>
+            <p class="dropzone-sub">도와줘 위치기록을 올려 날짜별 동선을 관리하고,
+              블랙박스 차량 GPS와 대조해 <strong>주행·보행·체류</strong>를 가립니다.</p>
+            <ul class="dropzone-notes">
+              <li>여러 파일을 한 번에 올릴 수 있고, 올린 기록은 <strong>날짜별로 병합</strong>됩니다.</li>
+              <li>위치 원본은 <strong>이 브라우저 안에만</strong> 저장되고 밖으로 나가지 않습니다.</li>
+            </ul>
+            <button id="btn-move-enter" class="btn btn-primary" type="button">이동기록 열기</button>
+          </div>
         </div>
       </div>
     </main>
@@ -79,6 +97,18 @@
     <main id="view-calendar" class="view" hidden>
       <div class="cal-wrap">
         <div id="calendar"></div>
+      </div>
+    </main>
+
+    <!-- 이동기록 공간 (블랙박스와 분리) -->
+    <main id="view-move" class="view" hidden>
+      <div class="move-wrap">
+        <div class="move-head">
+          <button id="btn-move-home" class="btn btn-sm" type="button">‹ 처음</button>
+          <h2 class="move-title">이동기록</h2>
+        </div>
+        <div id="move-list"></div>
+        <div id="move-detail" hidden></div>
       </div>
     </main>
 

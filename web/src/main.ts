@@ -16,7 +16,7 @@ import {
 } from './core/bookmarks';
 import { probeSegment, type SegmentInfo } from './core/segment';
 import { formatDuration, formatRecordedTime, formatShortDate } from './core/time';
-import type { JdrDocument, ParseProgress } from './core/types';
+import type { GpsFix, JdrDocument, ParseProgress } from './core/types';
 import { JdrParseJob } from './parse-client';
 import { MergedRecords, RecordScanJob } from './scan-client';
 import { FileSegmentLoader } from './player/loader';
@@ -32,6 +32,11 @@ import { renderRangeExport } from './ui/range-export';
 import { parsePhoneTrack, PhoneTrackError, type PhoneFix } from './core/phone-track';
 import { matchTracks, type MatchResult } from './core/track-match';
 import { renderTrackPanel, trackMatchCsv } from './ui/track-panel';
+import {
+  MoveStore, MOVE_FILE_NAME, movePointToFix, parseMoveFile, serializeMoveDays,
+  MoveFileError, type MoveDaySummary, type MovePoint,
+} from './core/move-store';
+import { renderMoveList, renderMoveDay } from './ui/move-panel';
 import {
   buildRange, isVideoKind, rangeFileName, RANGE_LABEL, type RangeKind, type TimeRange,
 } from './core/range-export';
@@ -54,6 +59,7 @@ const views = {
   error: $('view-error'),
   calendar: $('view-calendar'),
   main: $('view-main'),
+  move: $('view-move'),
 };
 
 const CONTROL_IDS = ['btn-play', 'btn-prev-file', 'btn-next-file', 'btn-back10', 'btn-fwd10', 'seek', 'speed', 'btn-mute', 'btn-bookmark'];
@@ -1615,6 +1621,128 @@ $<HTMLInputElement>('track-file-input').addEventListener('change', async (e) => 
     drawTrackPanel();
   } catch (err) {
     toast(err instanceof PhoneTrackError ? err.message : (err instanceof Error ? err.message : String(err)));
+  }
+});
+
+// ── 이동기록 공간 ───────────────────────────────────
+//
+// 블랙박스(재생)와 분리된 별도 공간. 휴대폰 위치기록을 올려 날짜별로 병합·관리하고
+// 그날 동선을 지도·요약으로 본다. 대조(차량 GPS와 겹치기)는 상세에서 부른다.
+const moveStore = new MoveStore();
+let moveDays: MoveDaySummary[] = [];
+let moveMatch: MatchResult | null = null;
+let moveMap: GpsMap | null = null;
+
+/** MovePoint를 지도가 아는 GpsFix 모양으로 (필요한 것만 채운다) */
+function moveFixToGps(p: MovePoint): GpsFix {
+  return {
+    timeMs: p.t, gpsTimeMs: p.t, pdop: 0, hdop: 0, vdop: 0,
+    latNmea: 0, lonNmea: 0, lat: p.lat, lon: p.lon, altitude: 0, speed: p.speed,
+  };
+}
+
+function enterMove(): void {
+  showView('move');
+  $('move-detail').hidden = true;
+  $('move-list').hidden = false;
+  void refreshMoveList();
+}
+
+async function refreshMoveList(): Promise<void> {
+  moveDays = await moveStore.listDays();
+  renderMoveList($('move-list'), moveDays, moveStore.persistent, {
+    onUpload: () => $('move-file-input').click(),
+    onImport: () => $('move-import-input').click(),
+    onExport: async () => {
+      const days = await moveStore.allDays();
+      if (days.length === 0) { toast('내보낼 이동기록이 없습니다'); return; }
+      downloadFile(new Blob([serializeMoveDays(days)], { type: 'application/json' }), MOVE_FILE_NAME);
+      toast(`${MOVE_FILE_NAME} 저장 · ${num(days.length)}일`);
+    },
+    onOpenDay: (dayKey) => void openMoveDay(dayKey),
+  });
+}
+
+function backToMoveList(): void {
+  moveMatch = null;
+  moveMap = null;
+  $('move-detail').hidden = true;
+  $('move-list').hidden = false;
+  void refreshMoveList();
+}
+
+async function openMoveDay(dayKey: string): Promise<void> {
+  const day = await moveStore.getDay(dayKey);
+  if (!day || day.points.length === 0) { toast('그 날짜 기록이 없습니다'); return; }
+  const fixes = day.points.map(movePointToFix);
+  // 2단계: 차량 GPS 없이 휴대폰만으로 보행/체류/다른 이동을 가른다.
+  // 3~4단계에서 블랙박스 차량 GPS를 끌어와 "이 차량 주행"까지 켠다.
+  moveMatch = matchTracks([], fixes);
+
+  const detail = $('move-detail');
+  renderMoveDay(detail, day, moveMatch, false, {
+    onBack: backToMoveList,
+    onCompare: () => toast('블랙박스와의 대조는 다음 단계에서 켜집니다 (차량 GPS 인덱스)'),
+    onExportCsv: () => {
+      if (!moveMatch) return;
+      downloadFile(new Blob([trackMatchCsv(moveMatch)], { type: 'text/csv' }), `dongseon_${dayKey}.csv`);
+      toast('CSV 저장');
+    },
+    onDelete: () => {
+      if (!confirm(`${dayKey} 이동기록을 지울까요?`)) return;
+      void moveStore.removeDay(dayKey).then(() => { toast('지웠습니다'); backToMoveList(); });
+    },
+  });
+  $('move-list').hidden = true;
+  detail.hidden = false;
+
+  // 지도 (상세를 다시 그릴 때마다 #move-map 요소가 새로 생기므로 새로 만든다)
+  moveMap = new GpsMap($('move-map'));
+  moveMap.resetFit();
+  moveMap.render(day.points.map(moveFixToGps));
+  moveMap.invalidate();
+  document.getElementById('move-fit')?.addEventListener('click', () => {
+    if (!moveMap?.fitAll()) toast('표시할 경로가 없습니다');
+  });
+}
+
+$('btn-move-enter').addEventListener('click', () => enterMove());
+$('btn-move-home').addEventListener('click', () => showView('empty'));
+
+$<HTMLInputElement>('move-file-input').addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  if (files.length === 0) return;
+  let addedTotal = 0;
+  const daySet = new Set<string>();
+  let failed = 0;
+  for (const file of files) {
+    try {
+      const fixes = parsePhoneTrack(await file.text());
+      const res = await moveStore.mergeUpload(fixes, file.name);
+      for (const r of res) { addedTotal += r.added; daySet.add(r.dayKey); }
+    } catch {
+      failed++;
+    }
+  }
+  await refreshMoveList();
+  const msg = `${num(daySet.size)}일 · ${num(addedTotal)}점 병합${failed > 0 ? ` · ${num(failed)}개 실패` : ''}`;
+  toast(addedTotal > 0 || daySet.size > 0 ? msg : '새로 병합된 점이 없습니다 (이미 있는 기록)');
+});
+
+$<HTMLInputElement>('move-import-input').addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    const days = parseMoveFile(await file.text());
+    const added = await moveStore.mergeDays(days);
+    await refreshMoveList();
+    toast(`${num(days.length)}일 불러옴 · ${num(added)}점 병합`);
+  } catch (err) {
+    toast(err instanceof MoveFileError ? err.message : (err instanceof Error ? err.message : String(err)));
   }
 });
 
