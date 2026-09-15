@@ -126,6 +126,49 @@ function showView(name: keyof typeof views): void {
   syncWakeChip(name);
 }
 
+// ── 뒤로가기(OS·브라우저 백 버튼) 계층 이동 ─────────────────
+//
+// 앱은 한 페이지라 히스토리에 항목을 쌓지 않으면 백 버튼이 앱을 통째로 닫는다.
+// 그래서 목록보다 깊은 화면에 들어가면 히스토리에 '덫' 항목 하나를 띄워 백을
+// 가로챈다. 백을 누르면 한 단계 위로만 올라가고(재생→달력, 상세·요약→목록,
+// 목록→HOME), HOME에서 한 번 더 누를 때 비로소 앱을 벗어난다.
+type NavScreen = 'home' | 'bb-calendar' | 'bb-main' | 'move-list' | 'move-detail' | 'move-overview' | null;
+function currentScreen(): NavScreen {
+  switch (currentView) {
+    case 'empty': return 'home';
+    case 'calendar': return 'bb-calendar';
+    case 'main': return 'bb-main';
+    case 'move': return moveOverviewOpen ? 'move-overview' : moveDetailOpen ? 'move-detail' : 'move-list';
+    default: return null; // loading·error 는 지나가는 화면 — 덫을 건드리지 않는다
+  }
+}
+
+let backTrapArmed = false;
+function armBackTrap(): void {
+  if (backTrapArmed) return;
+  try { history.pushState(null, ''); backTrapArmed = true; } catch { /* file:// 등에서는 히스토리를 못 쓴다 */ }
+}
+/** applyTopbar 끝에서 부른다 — 지금이 목록이거나 그보다 깊으면 덫을 띄워 둔다. */
+function syncBackTrap(): void {
+  const s = currentScreen();
+  if (s && s !== 'home') armBackTrap();
+}
+/** 백 한 번에 한 단계 위로. HOME·지나가는 화면이면 그대로 둬서 앱을 벗어나게 한다. */
+function navigateBack(): void {
+  switch (currentScreen()) {
+    case 'bb-main': gotoCalendar(); break;
+    case 'move-detail':
+    case 'move-overview': backToMoveList(); break;
+    case 'bb-calendar':
+    case 'move-list': showView('empty'); break;
+    default: break; // home → 덫이 이미 소비됐으니 다음 백에서 앱을 벗어난다
+  }
+}
+window.addEventListener('popstate', () => {
+  backTrapArmed = false;   // 방금 덫이 소비됐다
+  navigateBack();          // 위로 올라가면 applyTopbar→syncBackTrap 이 덫을 다시 띄운다
+});
+
 /** showView가 bookmarks 선언보다 먼저 돌 수 있어 개수만 따로 둔다 */
 let bookmarkCount = 0;
 /** 이동기록 공간에서 지금 상세를 보고 있는가 (상단바 버튼이 목록/상세로 갈린다) */
@@ -200,6 +243,7 @@ function applyTopbar(): void {
       break;
   }
   renderTopbar(space, primary, more);
+  syncBackTrap(); // 화면이 바뀔 때마다 백 버튼 덫을 맞춰 둔다
 }
 
 let currentMore: TbItem[] = [];

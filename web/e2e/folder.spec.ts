@@ -1842,3 +1842,44 @@ test('이동기록 — 도와줘·차량 CSV 를 한 번에 올리고 전체 요
   await expect(page.locator('#move-detail')).toBeVisible();
 });
 
+
+test('뒤로가기 — 블랙박스 재생에서 백을 누르면 달력 → HOME 순으로 올라간다', async ({ page }) => {
+  await openMorningSession(page); // 재생(main) 화면
+  await expect(page.locator('#view-main')).toBeVisible();
+
+  // 백 한 번: 재생 → 달력 (앱을 벗어나지 않는다)
+  await page.goBack();
+  await expect(page.locator('#view-calendar')).toBeVisible();
+  await expect(page.locator('#view-main')).toBeHidden();
+
+  // 백 한 번 더: 달력(블랙박스 목록) → HOME
+  await page.goBack();
+  await expect(page.locator('#view-empty')).toBeVisible();
+  await expect(page.locator('#view-calendar')).toBeHidden();
+});
+
+test('뒤로가기 — 이동기록 상세에서 백을 누르면 목록 → HOME 순으로 올라간다', async ({ page }) => {
+  await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
+  await page.locator('#btn-move-enter').click();
+  await expect(page.locator('#move-list')).toBeVisible();
+
+  const rows = [{ timestamp: '2026-09-12 08:00:00', latitude: 37.50, longitude: 127.00, accuracy: 10, speed: 0, battery: 80, address: '', provider: 'gps', activity_type: 'STILL', staytime: 0 }];
+  const f = join(dir, 'back-nav.txt');
+  writeFileSync(f, JSON.stringify({ success: true, data: [rows], errors: [] }));
+  await page.locator('#move-file-input').setInputFiles([f]);
+  await page.waitForTimeout(300);
+  await page.locator('[data-day="2026-09-12"]').click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('#move-detail')).toBeVisible();
+
+  // 백 한 번: 상세 → 이동기록 목록 (앱을 벗어나지 않는다)
+  await page.goBack();
+  await expect(page.locator('#move-list')).toBeVisible();
+  await expect(page.locator('#move-detail')).toBeHidden();
+
+  // 백 한 번 더: 이동기록 목록 → HOME
+  await page.goBack();
+  await expect(page.locator('#view-empty')).toBeVisible();
+  await expect(page.locator('#view-move')).toBeHidden();
+});
+
