@@ -155,9 +155,13 @@ function applyTopbar(): void {
       break;
     case 'calendar':
       space = '블랙박스';
-      // 재생·달력에서는 즐겨찾기를 늘 쓰므로 별을 항상 둔다(개수 0이어도)
-      primary = [{ id: 'btn-open-folder', label: '폴더 열기', onClick: openFolderPicker, primary: true }, starItem()];
-      more = [{ id: 'btn-open', label: '파일 열기', onClick: openFilePicker }];
+      // 재생·달력에서는 즐겨찾기를 늘 쓰므로 별을 항상 둔다(개수 0이어도).
+      // 폴더/파일 열기는 ⋯ 로 모은다(상단 간결화).
+      primary = [starItem()];
+      more = [
+        { id: 'btn-open-folder', label: '폴더 열기', onClick: openFolderPicker },
+        { id: 'btn-open', label: '파일 열기', onClick: openFilePicker },
+      ];
       break;
     case 'main':
       space = '블랙박스';
