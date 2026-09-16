@@ -1872,6 +1872,17 @@ test('뒤로가기 — 블랙박스 재생에서 백을 누르면 달력 → HOM
   await expect(page.locator('#view-calendar')).toBeHidden();
 });
 
+test('뒤로가기 — 폴더 열어 달력에 온 직후 백을 누르면 앱을 벗어나지 않고 HOME으로', async ({ page }) => {
+  // 실사용 경로: 새로 들어와 폴더를 열면 달력이 뜬다. 여기서 백 한 번은
+  // 사이트를 벗어나지 말고 HOME으로 가야 한다(재생을 거치지 않은 경우).
+  await openFolder(page);
+  await expect(page.locator('#view-calendar')).toBeVisible();
+
+  await page.goBack();
+  await expect(page.locator('#view-empty')).toBeVisible();   // HOME (앱 안)
+  await expect(page.locator('#view-calendar')).toBeHidden();
+});
+
 test('뒤로가기 — 이동기록 상세에서 백을 누르면 목록 → HOME 순으로 올라간다', async ({ page }) => {
   await page.goto(codec?.startsWith('avc1') ? '/' : `/?codec=${encodeURIComponent(codec ?? 'vp8')}`);
   await page.locator('#btn-move-enter').click();
