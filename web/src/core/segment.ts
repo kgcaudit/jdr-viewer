@@ -10,7 +10,7 @@ import type { ByteSource } from './byte-source';
 import { INDEX_ENTRY_SIZE, JEB_HEADER_SIZE, PACKET_HEADER_SIZE, readSystemTimeFromView, validateHeader } from './parser';
 import { systemTimeToMs } from './time';
 import { packTag, TagKind, tagKind } from './tags';
-import { durationExceedsContent, endFromFrames } from './duration';
+import { durationExceedsContent, endFromFrames, TAIL_GAP_MS } from './duration';
 export { durationExceedsContent } from './duration';
 
 /** 시간 범위를 어디서 얻었는지 — UI에 신뢰도를 표시하기 위함 */
@@ -354,8 +354,16 @@ async function timeRangeFromPackets(
           if (!Number.isFinite(t)) continue;
           if (!Number.isFinite(anyEnd) || t > anyEnd) anyEnd = t;
           if (isMedia) {
-            mediaEnd = t;
-            break;
+            // 끝의 외톨이 프레임(닫힘·시동 흔적)을 뗀다: 마지막 미디어가 바로 앞
+            // 미디어와 TAIL_GAP_MS보다 벌어져 있으면 그건 진짜 끝이 아니다. 촘촘한
+            // 구간에 닿을 때까지 되짚어 내려간다. 정상 파일은 첫 비교에서 멈춘다.
+            if (!Number.isFinite(mediaEnd)) {
+              mediaEnd = t;
+            } else if (mediaEnd - t > TAIL_GAP_MS) {
+              mediaEnd = t;
+            } else {
+              break;
+            }
           }
         }
       }

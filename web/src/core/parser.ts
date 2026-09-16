@@ -6,7 +6,7 @@ import type { ByteSource } from './byte-source';
 import { WindowReader } from './byte-source';
 import { Sha256 } from './sha256';
 import { systemTimeToMs } from './time';
-import { durationExceedsContent, endFromFrames } from './duration';
+import { durationExceedsContent, endFromFrames, trimmedContentEnd } from './duration';
 import { TagKind, packTag, tagChannel, tagIsKeyframe, tagKind, tagString } from './tags';
 import { buildKeyChunk, extractParameterSets, findNalUnits, parseSps, NAL_IDR, NAL_PPS, NAL_SPS } from './nal';
 import type {
@@ -318,12 +318,13 @@ export async function parseJdr(
    * 덧붙이기도 하는데, 그걸 끝으로 삼으면 주차한 몇 시간이 통째로
    * "녹화된 구간"이 된다.
    */
-  let contentEndMs = -Infinity;
   let audioPackets = 0;
   let audioBytes = 0;
   const videoTimes: number[][] = [[], []];
   const videoKeyframes = [0, 0];
   const firstKeyIndex = [-1, -1];
+  /** 영상·음성 패킷 시각 — 끝의 외톨이 프레임을 떼어 실제 끝을 잡는 데 쓴다 */
+  const mediaTimes: number[] = [];
 
   for (let i = 0; i < w; i++) {
     const tag = packets.tag[i];
@@ -350,10 +351,13 @@ export async function parseJdr(
       audioPackets++;
       audioBytes += packets.size[i];
     }
-    if ((kind === TagKind.Video || kind === TagKind.Audio) && Number.isFinite(t) && t > contentEndMs) {
-      contentEndMs = t;
+    if ((kind === TagKind.Video || kind === TagKind.Audio) && Number.isFinite(t)) {
+      mediaTimes.push(t);
     }
   }
+  // 끝은 **영상·음성이 끝난 곳**이되, 끝에 외톨이로 붙은 프레임(닫힘·시동 흔적)은 뗀다.
+  mediaTimes.sort((a, b) => a - b);
+  let contentEndMs = trimmedContentEnd(mediaTimes);
 
   const video: VideoChannelInfo[] = [];
   for (let ch = 0; ch < 2; ch++) {

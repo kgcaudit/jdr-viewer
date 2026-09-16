@@ -36,3 +36,22 @@ export function durationExceedsContent(durationMs: number, frames: number, packe
 export function endFromFrames(startMs: number, frames: number): number {
   return startMs + (frames > 1 ? ((frames - 1) / 30) * 1000 : 0);
 }
+
+/**
+ * 끝의 외톨이 프레임을 떼고 실제 영상이 끝난 곳을 돌려준다.
+ *
+ * 시동을 끄며(또는 파일을 닫으며) 마지막에 프레임 한둘이 **한참 뒤 시각**을
+ * 달고 찍히는 일이 있다. 연속 녹화가 08:20:09에 끝났는데 08:21:14에 외톨이
+ * 프레임이 있으면 재생 길이가 그만큼 늘고 시계가 자막보다 앞선다. 그래서
+ * 마지막 프레임이 바로 앞 프레임과 `gapMs`보다 벌어져 있으면 떼고, 촘촘한
+ * 구간에 닿을 때까지 되짚어 내려간다. 정상 녹화(끝이 촘촘함)는 첫 비교에서
+ * 멈추므로 건드리지 않는다.
+ */
+export const TAIL_GAP_MS = 30_000;
+export function trimmedContentEnd(sortedMediaTimes: number[], gapMs = TAIL_GAP_MS): number {
+  const a = sortedMediaTimes;
+  if (a.length === 0) return NaN;
+  let end = a.length - 1;
+  while (end > 0 && a[end] - a[end - 1] > gapMs) end--;
+  return a[end];
+}

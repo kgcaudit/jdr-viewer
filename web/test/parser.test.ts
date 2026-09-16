@@ -6,6 +6,7 @@ import { systemTimeToMs, formatRecordedTime } from '../src/core/time';
 import { packTag, tagChannel, tagIsKeyframe, tagKind, tagString, TagKind } from '../src/core/tags';
 import { findNalUnits, parseSps, buildKeyChunk, extractParameterSets } from '../src/core/nal';
 import { Sha256 } from '../src/core/sha256';
+import { trimmedContentEnd } from '../src/core/duration';
 import { buildJdrBlock, concatBlocks, gpsPayload, gsensorPayload, pcmTone, type SynthPacket } from './synth';
 
 const T0 = Date.UTC(2026, 0, 15, 9, 30, 0, 0);
@@ -258,6 +259,15 @@ describe('JDR 파싱', () => {
   });
 });
 
+describe('끝의 외톨이 프레임 떼기', () => {
+  it('끝이 촘촘하면 그대로, 크게 벌어지면 앞의 촘촘한 곳까지 되짚는다', () => {
+    expect(trimmedContentEnd([0, 33, 66, 99])).toBe(99);                 // 촘촘 → 그대로
+    expect(trimmedContentEnd([0, 33, 66, 99, 99 + 65_000])).toBe(99);    // 외톨이 하나 → 뗌
+    expect(trimmedContentEnd([0, 40_000, 80_000])).toBe(0);              // 전부 벌어지면 첫 점
+    expect(Number.isNaN(trimmedContentEnd([]))).toBe(true);
+  });
+});
+
 describe('내보내기', () => {
   it('GPS/G센서 CSV와 WAV를 만든다', async () => {
     const { bytes } = sampleBlock();
@@ -325,6 +335,24 @@ describe('재생 길이는 영상·음성이 끝나는 곳까지', () => {
       expect(doc.contentEndMs, `${tailTag} 꼬리`).toBeLessThan(START + 2000);
       expect(doc.durationSec, `${tailTag} 꼬리`).toBeLessThan(2);
     }
+  });
+
+  it('연속 영상 뒤 외톨이 프레임(닫힘·시동 흔적)은 끝에서 뗀다', async () => {
+    // 300프레임(10초) 연속 뒤, 65초 지나 프레임 한 장. 프레임 수 기준
+    // (durationExceedsContent)으로는 안 걸리는 크기지만 끝의 외톨이라 떼야 한다.
+    // 실기 09/16: 08:20:09에 끝난 영상이 08:21:14 외톨이 프레임 때문에 늘어났다.
+    const packets: SynthPacket[] = [];
+    for (let f = 0; f < 300; f++) {
+      const t = START + Math.round((f * 1000) / 30);
+      packets.push({ tag: `00V${f === 0 ? 'I' : 'P'}`, payload: new Uint8Array([0, 0, 0, 1, 0x41, f & 0xff]), timeMs: t, aux: f });
+    }
+    const lone = START + 10_000 + 65_000; // 연속 끝(≈10초) 뒤 65초
+    packets.push({ tag: '00VP', payload: new Uint8Array([0, 0, 0, 1, 0x41, 0]), timeMs: lone });
+    const doc = await parseJdr(new BufferByteSource(buildJdrBlock(packets), 'tail-lone.jdr'));
+
+    expect(doc.lastTimeMs, '마지막 패킷 자체는 기록에 남긴다').toBe(lone);
+    expect(doc.contentEndMs, '끝은 연속 영상까지만(≈10초)').toBeLessThan(START + 11_000);
+    expect(doc.durationSec).toBeLessThan(11);
   });
 
   it('영상·음성이 하나도 없으면 마지막 패킷을 쓴다 (길이가 0이 되면 안 된다)', async () => {
