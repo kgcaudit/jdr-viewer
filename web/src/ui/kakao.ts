@@ -150,6 +150,13 @@ interface KakaoMaps {
     Geocoder: new () => {
       coord2Address(lng: number, lat: number, cb: (result: KAddr[], status: string) => void): void;
     };
+    Places: new () => {
+      categorySearch(
+        code: string,
+        cb: (result: KPlace[], status: string, pagination: unknown) => void,
+        opts: { location: KLatLng; radius: number; sort?: string },
+      ): void;
+    };
     Status: { OK: string };
   };
 }
@@ -157,6 +164,8 @@ interface KAddr {
   road_address?: { address_name?: string; building_name?: string } | null;
   address?: { address_name?: string } | null;
 }
+/** 카카오 장소검색 결과 한 건 (필요한 필드만) */
+interface KPlace { place_name?: string; distance?: string }
 declare global {
   interface Window { kakao?: { maps?: KakaoMaps } }
 }
@@ -169,28 +178,100 @@ export function kakaoServicesReady(): boolean {
 }
 
 /**
- * 카카오로 좌표 → {주소(도로명 우선, 없으면 지번), 상호명/건물명}. 등록 도메인에서만
- * 동작. 실패하면 빈 값. SDK services 가 브라우저 CORS 없이 처리한다.
+ * 좌표 → {주소, 건물명}. coord2Address 는 주소와 **등록 건물명**만 준다 —
+ * "바츠커피" 같은 상호명(POI)은 여기 없고 장소검색(Places)에 있다.
  */
-export function kakaoReverseGeocode(lat: number, lon: number): Promise<GeoInfo> {
+function kakaoCoord2Address(lat: number, lon: number): Promise<{ addr: string; building: string }> {
   return new Promise((resolve) => {
     try {
       const M = km();
-      if (!M.services) { resolve(EMPTY_GEO); return; }
+      if (!M.services) { resolve({ addr: '', building: '' }); return; }
       const geocoder = new M.services.Geocoder();
       const ok = M.services.Status?.OK ?? 'OK';
-      const timer = setTimeout(() => resolve(EMPTY_GEO), 8000);
+      const timer = setTimeout(() => resolve({ addr: '', building: '' }), 8000);
       geocoder.coord2Address(lon, lat, (result, status) => {
         clearTimeout(timer);
-        if (status !== ok || !result || result.length === 0) { resolve(EMPTY_GEO); return; }
+        if (status !== ok || !result || result.length === 0) { resolve({ addr: '', building: '' }); return; }
         const r = result[0];
         resolve({
           addr: r.road_address?.address_name || r.address?.address_name || '',
-          place: r.road_address?.building_name || '',
+          building: r.road_address?.building_name || '',
         });
       });
-    } catch { resolve(EMPTY_GEO); }
+    } catch { resolve({ addr: '', building: '' }); }
   });
+}
+
+/** 상호명을 찾을 반경(m)과, 체류지에 의미 있는 장소 카테고리(카카오 그룹코드) */
+const PLACE_RADIUS_M = 50;
+const PLACE_CATEGORIES = [
+  'CE7', // 카페
+  'FD6', // 음식점
+  'HP8', // 병원
+  'PM9', // 약국
+  'BK9', // 은행
+  'CS2', // 편의점
+  'MT1', // 대형마트
+  'CT1', // 문화시설
+  'AT4', // 관광명소
+  'AD5', // 숙박
+  'PO3', // 공공기관
+  'SC4', // 학교
+  'AC5', // 학원
+  'PS3', // 어린이집·유치원
+  'OL7', // 주유소·충전소
+  'SW8', // 지하철역
+];
+
+/**
+ * 좌표 주변의 **대표 상호명(POI)** 을 장소검색으로 찾는다.
+ *
+ * coord2Address 로는 못 얻는 상호명("바츠커피")을 카테고리별 근접검색으로
+ * 훑어 **가장 가까운 한 곳**을 고른다. 등록 도메인에서만 동작, 실패하면 빈 값.
+ */
+export function kakaoPlaceName(lat: number, lon: number): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const M = km();
+      if (!M.services?.Places) { resolve(''); return; }
+      const places = new M.services.Places();
+      const loc = new (km().LatLng)(lat, lon);
+      const ok = M.services.Status?.OK ?? 'OK';
+      let bestName = '';
+      let bestDist = Infinity;
+      let remaining = PLACE_CATEGORIES.length;
+      const finish = (): void => resolve(bestName);
+      const timer = setTimeout(finish, 6000);
+      const done = (): void => { if (--remaining === 0) { clearTimeout(timer); finish(); } };
+      for (const code of PLACE_CATEGORIES) {
+        places.categorySearch(code, (result, status) => {
+          if (status === ok && Array.isArray(result)) {
+            for (const r of result) {
+              const d = Number(r.distance);
+              if (r.place_name && Number.isFinite(d) && d < bestDist) {
+                bestDist = d; bestName = r.place_name;
+              }
+            }
+          }
+          done();
+        }, { location: loc, radius: PLACE_RADIUS_M, sort: 'distance' });
+      }
+    } catch { resolve(''); }
+  });
+}
+
+/**
+ * 카카오로 좌표 → {주소, 대표 상호명}. 주소는 coord2Address, 상호명은
+ * 장소검색(가장 가까운 POI)에서 얻고 없으면 건물명으로 대체한다. 두 호출을
+ * 나란히 돌린다. 등록 도메인에서만 동작, 실패하면 빈 값.
+ */
+export async function kakaoReverseGeocode(lat: number, lon: number): Promise<GeoInfo> {
+  try {
+    const [addr, place] = await Promise.all([kakaoCoord2Address(lat, lon), kakaoPlaceName(lat, lon)]);
+    return { addr: addr.addr, place: place || addr.building };
+  } catch {
+    return EMPTY_GEO;
+  }
 }
 
 /** 위/경도 유효행만 (0,0 미수신 제외) — Leaflet 백엔드와 같은 기준 */

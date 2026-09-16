@@ -166,11 +166,17 @@ export async function reverseGeocode(lat: number, lon: number): Promise<GeoInfo>
     if (preferred) {
       try { info = await preferred(lat, lon); } catch { info = EMPTY_GEO; }
     }
-    // 주소를 못 얻었으면 OSM — 직렬 체인에 매달아 호출 간격(초당 1회)을 지킨다
-    if (!info.addr) {
+    // 주소를 못 얻었으면 OSM 로 전체를, 주소는 있는데 **상호명만 비면** OSM 상호명만
+    // 보충한다(카카오 장소검색도 못 찾은 시골·건물 안 등). 주소는 카카오 것을 지킨다.
+    // 두 경우 모두 직렬 체인에 매달아 호출 간격(초당 1회)을 지킨다.
+    if (!info.addr || !info.place) {
       const run = chain.then(() => fetchNominatim(lat, lon));
       chain = run.catch(() => EMPTY_GEO);
-      info = await run;
+      const osm = await run;
+      info = {
+        addr: info.addr || osm.addr,
+        place: info.place || osm.place,
+      };
     }
     if (info.addr || info.place) await cachePut(key, info);
     inflight.delete(key);
