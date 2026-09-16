@@ -16,6 +16,8 @@ export interface MapBackend {
   showCurrent(): GpsFix | null;
   /** 특정 좌표로 지도 중심을 옮긴다 (머문 곳 번호를 누를 때). 배율은 거리 보이게 당긴다 */
   centerOn(lat: number, lon: number): void;
+  /** 배율은 그대로 두고 중심만 그 좌표로 (시간 스크러버가 끌 때). 애니메이션 없음 */
+  follow(lat: number, lon: number): void;
   /** 전체 경로가 다 보이게 맞춘다 */
   fitAll(): boolean;
   /** 다음 render 때 다시 화면을 맞추게 한다 */

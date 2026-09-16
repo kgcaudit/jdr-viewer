@@ -118,6 +118,12 @@ export class LeafletBackend implements MapBackend {
     this.map.setView([lat, lon], Math.max(this.map.getZoom(), FOCUS_ZOOM));
   }
 
+  /** 배율은 그대로, 중심만 옮긴다 (스크러버가 끌 때 그 점을 가운데 둔다). */
+  follow(lat: number, lon: number): void {
+    if (!this.map) return;
+    this.map.setView([lat, lon], this.map.getZoom(), { animate: false });
+  }
+
   /** 전체 경로가 다 보이도록 다시 맞춘다 (사용자가 눌렀을 때만) */
   fitAll(): boolean {
     if (!this.map || !this.track) return false;
@@ -248,6 +254,7 @@ export class GpsMap implements MapBackend {
   syncTo(absTimeMs: number): GpsFix | null { return this.backend.syncTo(absTimeMs); }
   showCurrent(): GpsFix | null { return this.backend.showCurrent(); }
   centerOn(lat: number, lon: number): void { this.backend.centerOn(lat, lon); }
+  follow(lat: number, lon: number): void { this.backend.follow(lat, lon); }
   fitAll(): boolean { return this.backend.fitAll(); }
   resetFit(): void { this.backend.resetFit(); }
   invalidate(): void { this.backend.invalidate(); }

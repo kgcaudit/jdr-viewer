@@ -1920,6 +1920,7 @@ function showMoveDetail(day: MoveDay, car: CarPoint[]): void {
   seek?.addEventListener('input', () => {
     const abs = s0 + (Number(seek.value) / 1000) * (s1 - s0);
     const f = moveMap?.syncTo(abs);
+    if (f) moveMap?.follow(f.lat, f.lon); // 그 좌표를 지도 가운데로 (배율은 그대로)
     if (readout) readout.textContent = f ? hhmmss(f.timeMs) : '--:--:--';
   });
 }

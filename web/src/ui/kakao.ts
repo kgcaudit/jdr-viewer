@@ -315,6 +315,12 @@ export class KakaoBackend implements MapBackend {
     if (this.map.getLevel() > FOCUS_LEVEL) this.map.setLevel(FOCUS_LEVEL);
   }
 
+  /** 배율은 그대로, 중심만 옮긴다 (스크러버가 끌 때). */
+  follow(lat: number, lon: number): void {
+    if (!this.map) return;
+    this.map.setCenter(new (km().LatLng)(lat, lon));
+  }
+
   fitAll(): boolean {
     if (!this.map || this.fixes.length === 0) return false;
     const M = km();

@@ -1699,12 +1699,26 @@ test('이동기록 상세 — 시간 스크러버로 시각을 본다', async ({
 
   // 처음엔 시작 시각
   await expect(page.locator('#move-seek-time')).toHaveText('08:00:00');
-  // 끝까지 끌면 마지막 점 시각(08:05)
-  await page.locator('#move-seek').fill('1000');
-  await page.locator('#move-seek').dispatchEvent('input');
-  await expect(page.locator('#move-seek-time')).toHaveText('08:05:00');
   // 시작·끝 라벨이 지도에 뜬다
   await expect(page.locator('.map-time-label').first()).toBeVisible();
+
+  // 스크러버를 끌면 그 좌표가 지도 가운데로 온다 — 지도가 따라 움직이는지 본다.
+  // 고정 지리 좌표(시작 라벨)의 화면 위치가 처음↔끝에서 크게 바뀌면 지도가 팬한 것.
+  const startLabel = () => page.locator('.map-time-label').first().boundingBox();
+  await page.locator('#move-seek').fill('0');
+  await page.locator('#move-seek').dispatchEvent('input');
+  await page.waitForTimeout(150);
+  const boxAtStart = await startLabel();
+
+  await page.locator('#move-seek').fill('1000');
+  await page.locator('#move-seek').dispatchEvent('input');
+  await expect(page.locator('#move-seek-time')).toHaveText('08:05:00'); // 끝점 시각
+  await page.waitForTimeout(150);
+  const boxAtEnd = await startLabel();
+
+  expect(boxAtStart && boxAtEnd, '시작 라벨 박스를 재야 한다').toBeTruthy();
+  const moved = Math.hypot(boxAtStart!.x - boxAtEnd!.x, boxAtStart!.y - boxAtEnd!.y);
+  expect(moved, '스크러버를 끌면 지도가 그 점을 따라 움직여야 한다').toBeGreaterThan(30);
 });
 
 test('이동기록 상세 — 한 자리에 머물면 머문 곳과 머문 시간이 뜬다', async ({ page }) => {
