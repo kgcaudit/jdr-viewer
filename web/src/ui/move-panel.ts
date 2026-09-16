@@ -141,7 +141,11 @@ export function renderMoveDay(
     <div id="move-map" class="map"></div>
     <div class="move-scrub">
       <input id="move-seek" class="seek" type="range" min="0" max="1000" value="0" aria-label="시각으로 위치 보기" />
+    </div>
+    <div class="move-scrub-labels">
+      <span class="tnum">${escapeHtml(clock(start))}</span>
       <span id="move-seek-time" class="move-seek-time tnum">${escapeHtml(formatRecordedTime(start, false).slice(11, 19))}</span>
+      <span class="tnum">${escapeHtml(clock(end))}</span>
     </div>
     <div class="map-bar">
       <p class="muted small" style="margin:0"><span id="map-src"></span>${escapeHtml(day.sources.join(', ') || '')} · 경로를 눌러 시각을 봅니다</p>

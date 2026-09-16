@@ -213,9 +213,14 @@ body {
 .move-day-src { grid-column: 1 / -1; font-size: 11px; }
 .move-detail-head { display: flex; align-items: center; gap:10px; flex-wrap: wrap; margin-bottom:10px; }
 #move-map { height: 300px; margin-bottom:8px; }
-.move-scrub { display: flex; align-items: center; gap:10px; margin:2px 0 8px; }
+.move-scrub { display: flex; align-items: center; margin:2px 0 2px; }
 .move-scrub .seek { flex: 1 1 auto; }
-.move-seek-time { flex: 0 0 auto; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 4.6em; text-align: right; }
+/* 막대 하단에 시각을 단다 — 양끝은 시작·끝, 가운데는 지금 끌고 있는 시각 */
+.move-scrub-labels {
+  display: flex; justify-content: space-between; align-items: baseline; gap:8px;
+  margin:0 2px 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.move-seek-time { flex: 1 1 auto; text-align: center; font-weight: 700; font-size: 13px; color: var(--accent); }
 .map-time-label {
   background: var(--surface); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding:1px 6px; font-size: 11px; font-weight: 600; box-shadow: none;
