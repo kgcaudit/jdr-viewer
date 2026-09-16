@@ -276,11 +276,19 @@ export async function probeSegment(input: ProbeSource): Promise<SegmentInfo> {
     endEstimated = true;
   }
 
+  // **파일 안 공백도 블록 헤더 시각(0x94/0xA4)으로 재는데, 그 시각은 못 믿는다.**
+  // 종료시각은 이미 패킷 기준으로 바로잡았지만(위), 공백 계산은 헤더를 쓴다.
+  // 미리 잡아 둔 파일에 남은 옛 블록의 헤더 시각이 섞이면 공백이 구간 길이를
+  // 훌쩍 넘겨(실기에서 37분 운행에 10시간 43분) 나온다 — 그러면 "실제 영상"이
+  // 0초로 깎인다. 공백은 그 구간 안의 일부라 **구간 길이를 넘을 수 없다.** 넘으면
+  // 헤더를 못 믿는다는 뜻이므로 버린다(0). 길이 이하의 값은 진짜일 수 있어 남긴다.
+  const span = Math.max(0, endMs - startMs);
   return {
     ...base,
     startMs,
     endMs,
-    durationMs: Math.max(0, endMs - startMs),
+    durationMs: span,
+    innerGapMs: base.innerGapMs > span ? 0 : base.innerGapMs,
     timeSource,
     endEstimated,
     headerShiftMs: Math.round(headerShiftMs),

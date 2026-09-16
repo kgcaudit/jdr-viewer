@@ -186,6 +186,23 @@ describe('파일 안에서 녹화가 끊길 때', () => {
     const seg = await probe(bytes as Uint8Array<ArrayBuffer>, 'x.jdr');
     expect(seg.innerGapMs).toBe(0);
   });
+
+  it('공백이 구간 길이를 넘으면(헤더 시각 오류) 버리고 실제 영상을 0으로 깎지 않는다', () => {
+    // 실기: 미리 잡아 둔 파일에 옛 블록의 헤더 시각이 섞여 37분 운행에 "파일 안
+    // 공백 10시간 43분"이 잡혀 "실제 영상 0초(0.0%)"로 깎였다. 공백은 그 구간
+    // 안의 일부라 패킷 기준 구간 길이(endMs-startMs)를 넘을 수 없다 — 넘으면
+    // 헤더를 못 믿는 것이므로 버린다. (캐시·인덱스에 남은 잘못된 값도 걸러낸다.)
+    const seg: SegmentInfo = {
+      id: 'data/03/00000303.jdr', name: '00000303.jdr', path: 'data/03/00000303.jdr', folder: 'data/03',
+      size: 73_400_320, startMs: T(8, 19, 51), endMs: T(8, 21, 14), durationMs: 83_000,
+      packetCount: 500, ch0Count: 500, ch1Count: 0, gpsCount: 5, sensorCount: 50,
+      blockOffsets: [0], timeSource: 'packets', endEstimated: false, headerShiftMs: 0,
+      coveredBytes: 73_400_320, blank: false, innerGapMs: 38_580_000, // 10시간 43분 (헤더 오류)
+    };
+    const lib = buildLibrary([seg]);
+    expect(lib.innerGapMs).toBe(0);        // 못 믿는 공백은 버린다
+    expect(lib.coveredMs).toBe(83_000);    // 실제 영상이 0으로 깎이지 않는다
+  });
 });
 
 describe('세그먼트 프로브', () => {

@@ -234,7 +234,10 @@ export function recomputeLibrary(lib: Library): void {
       coveredMs += s.endMs - from;
       cursor = s.endMs;
     }
-    innerGapMs += s.innerGapMs ?? 0;
+    // 공백은 그 구간 길이를 넘을 수 없다 — 넘으면 헤더 시각을 못 믿는 것이라
+    // 버린다(옛 캐시·인덱스에 남은 잘못된 값도 여기서 걸러 다시 스캔할 필요 없다).
+    const g = s.innerGapMs ?? 0;
+    innerGapMs += g > Math.max(0, s.endMs - s.startMs) ? 0 : g;
   }
   lib.coveredMs = Math.max(0, coveredMs - innerGapMs);
   lib.innerGapMs = innerGapMs;
